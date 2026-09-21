@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Snake Eaters</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <section id="startScreen" class="screen">
+    <div class="panel">
+      <h1 class="title">Snake&nbsp;Eaters</h1>
+      <p class="subtitle">Grow. Hunt. Survive. Only one snake leaves the arena.</p>
+      <div class="skin-picker" id="skinPicker" role="group" aria-label="Choose a snake skin"></div>
+      <button id="playBtn" class="btn btn-primary">Play</button>
+      <div class="hint-grid">
+        <div><span class="key">WASD</span> / <span class="key">Arrows</span> Move</div>
+        <div><span class="key">Shift</span> Speed Boost</div>
+        <div><span class="key">Space</span> Pause</div>
+        <div><span class="key">R</span> Restart</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gameScreen" class="screen hidden">
+    <header class="hud">
+      <div class="hud-stat"><span class="hud-label">Score</span><span id="hudScore" class="hud-value">0</span></div>
+      <div class="hud-stat"><span class="hud-label">Length</span><span id="hudLength" class="hud-value">0</span></div>
+      <div class="hud-stat"><span class="hud-label">Kills</span><span id="hudEliminations" class="hud-value">0</span></div>
+      <div class="hud-stat"><span class="hud-label">Snakes</span><span id="hudRemaining" class="hud-value">0</span></div>
+      <div class="you-badge"><span class="you-dot"></span>You are the green snake</div>
+      <div class="hud-status" id="hudStatus">Playing</div>
+      <button id="pauseBtn" class="btn btn-ghost" aria-label="Pause">⏸</button>
+    </header>
+
+    <div class="arena-wrap">
+      <canvas id="gameCanvas"></canvas>
+      <div id="pausedOverlay" class="overlay hidden">
+        <div class="overlay-text">Paused</div>
+      </div>
+    </div>
+
+    <div class="action-row">
+      <button id="boostBtn" class="btn btn-boost">⚡ Speed Boost</button>
+    </div>
+
+    <div id="dpad" class="dpad">
+      <button class="dpad-btn dpad-up" data-dir="up" aria-label="Up">▲</button>
+      <button class="dpad-btn dpad-left" data-dir="left" aria-label="Left">◀</button>
+      <button class="dpad-btn dpad-down" data-dir="down" aria-label="Down">▼</button>
+      <button class="dpad-btn dpad-right" data-dir="right" aria-label="Right">▶</button>
+    </div>
+  </section>
+
+  <section id="gameOverScreen" class="screen hidden">
+    <div class="panel">
+      <h2 id="gameOverTitle" class="title title-sm">Game Over</h2>
+      <div class="final-stats">
+        <div class="final-stat"><span class="hud-label">Final Score</span><span id="finalScore" class="final-value">0</span></div>
+        <div class="final-stat"><span class="hud-label">Snake Size</span><span id="finalLength" class="final-value">0</span></div>
+        <div class="final-stat"><span class="hud-label">Eliminations</span><span id="finalEliminations" class="final-value">0</span></div>
+      </div>
+      <button id="restartBtn" class="btn btn-primary">Play Again</button>
+    </div>
+  </section>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
