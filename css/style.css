@@ -40,6 +40,7 @@ body {
   justify-content: center;
   padding: 16px;
   gap: 18px;
+  overflow-y: auto;
 }
 
 .panel {
@@ -51,6 +52,92 @@ body {
   max-width: 440px;
   width: 100%;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.start-card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 36px 32px 40px;
+  text-align: center;
+  max-width: 600px;
+  width: 100%;
+  margin: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* --- logo --- */
+
+.logo-lockup {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.logo-lockup--hero {
+  margin-bottom: 6px;
+}
+
+.logo-lockup--small {
+  gap: 8px;
+  margin-right: 6px;
+}
+
+.logo-icon {
+  flex-shrink: 0;
+  filter: drop-shadow(0 4px 10px rgba(62, 224, 138, 0.25));
+}
+
+.logo-icon--hero {
+  width: 72px;
+  height: 72px;
+}
+
+.logo-icon--small {
+  width: 26px;
+  height: 26px;
+}
+
+.wordmark {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 0.92;
+  text-align: left;
+}
+
+.wordmark-line {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.wordmark-snake {
+  background: linear-gradient(135deg, #78f5b0, var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wordmark-eaters {
+  background: linear-gradient(135deg, #ff9f4d, var(--danger));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wordmark-small {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: linear-gradient(135deg, var(--accent), #ff9f4d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .title {
@@ -94,6 +181,18 @@ body {
   box-shadow: 0 8px 24px rgba(62, 224, 138, 0.25);
 }
 
+.btn-play {
+  font-size: 1.25rem;
+  padding: 16px 56px;
+  margin: 4px 0 8px;
+  animation: playPulse 2.4s ease-in-out infinite;
+}
+
+@keyframes playPulse {
+  0%, 100% { box-shadow: 0 8px 24px rgba(62, 224, 138, 0.3); }
+  50% { box-shadow: 0 8px 34px rgba(62, 224, 138, 0.65); }
+}
+
 .btn-ghost {
   background: #1c242e;
   color: var(--text);
@@ -108,13 +207,64 @@ body {
   justify-content: center;
 }
 
-.hint-grid {
-  margin-top: 24px;
+.start-section {
+  margin-top: 28px;
+  text-align: center;
+}
+
+.section-label {
+  margin: 0 0 12px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 10px;
+}
+
+.control-card {
+  background: #1c242e;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 12px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+}
+
+.control-card--boost {
+  border-color: #2a5566;
+}
+
+.control-card--attack {
+  border-color: #5a3a1a;
+}
+
+.control-card--secondary {
+  opacity: 0.75;
+}
+
+.control-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.control-keys {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.control-desc {
+  font-size: 0.75rem;
   color: var(--text-dim);
-  font-size: 0.85rem;
 }
 
 .key {
@@ -291,13 +441,15 @@ body {
   max-width: 980px;
   display: flex;
   justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .btn-boost {
   background: #1c242e;
   color: #78e6ff;
   border: 1px solid #2a5566;
-  min-width: 220px;
+  min-width: 180px;
 }
 
 .btn-boost.boosting {
@@ -307,6 +459,24 @@ body {
 }
 
 .btn-boost.cooldown {
+  color: var(--text-dim);
+  border-color: var(--panel-border);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.btn-attack {
+  background: #1c242e;
+  color: #ffbe5a;
+  border: 1px solid #5a3a1a;
+  min-width: 180px;
+}
+
+.btn-attack.ready {
+  box-shadow: 0 0 14px rgba(255, 190, 90, 0.35);
+}
+
+.btn-attack.cooldown {
   color: var(--text-dim);
   border-color: var(--panel-border);
   cursor: not-allowed;
@@ -352,5 +522,14 @@ body {
   .panel { padding: 28px 20px; }
   .hud-stat { min-width: 52px; padding: 5px 10px; }
   .hud-value { font-size: 1rem; }
-  .btn-boost { min-width: 0; width: 100%; max-width: 320px; }
+  .btn-boost, .btn-attack { min-width: 0; width: 100%; max-width: 320px; }
+
+  .start-card { padding: 28px 18px 32px; }
+  .logo-lockup--hero { flex-direction: column; gap: 8px; }
+  .wordmark { text-align: center; align-items: center; }
+  .logo-icon--hero { width: 60px; height: 60px; }
+  .wordmark-line { font-size: 1.9rem; }
+  .btn-play { width: 100%; padding: 16px 24px; }
+  .controls-grid { grid-template-columns: repeat(2, 1fr); }
+  .wordmark-small { display: none; } /* icon alone is enough in the compact mobile HUD */
 }

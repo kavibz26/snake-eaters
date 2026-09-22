@@ -14,6 +14,8 @@ export class Snake {
     this.inputBuffer = []; // player-only: one extra buffered turn, see queueDirection()
     this.boostTicksLeft = 0; // player-only: ticks remaining on an active speed boost
     this.boostCooldownLeft = 0; // player-only: ticks remaining before boost can be used again
+    this.attackPending = false; // player-only: a one-shot dash+bite queued for the next tick
+    this.attackCooldownLeft = 0; // player-only: ticks remaining before attack can be used again
     this.alive = true;
     this.growPending = 0; // segments still owed from a previous eat (kill bonuses can exceed 1)
     this.foodEaten = 0;
@@ -101,7 +103,7 @@ export class Snake {
   }
 
   canBoost() {
-    return this.boostTicksLeft <= 0 && this.boostCooldownLeft <= 0;
+    return this.boostTicksLeft <= 0 && this.boostCooldownLeft <= 0 && !this.attackPending;
   }
 
   // Starts a temporary speed boost; the actual extra movement happens in
@@ -110,6 +112,19 @@ export class Snake {
   activateBoost(durationTicks) {
     if (!this.canBoost()) return false;
     this.boostTicksLeft = durationTicks;
+    return true;
+  }
+
+  canAttack() {
+    return !this.attackPending && this.attackCooldownLeft <= 0 && this.boostTicksLeft <= 0;
+  }
+
+  // Queues a one-shot dash+bite for the very start of the next tick (see the
+  // attack pre-step in Game.tick()). Returns false if attack is already
+  // queued, still cooling down, or a boost is currently active.
+  activateAttack() {
+    if (!this.canAttack()) return false;
+    this.attackPending = true;
     return true;
   }
 

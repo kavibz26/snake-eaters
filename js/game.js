@@ -113,6 +113,13 @@ export class Game {
     return player.activateBoost(CONFIG.BOOST_DURATION_TICKS);
   }
 
+  activateAttack() {
+    if (this.state !== 'playing') return false;
+    const player = this.playerSnake;
+    if (!player || !player.alive) return false;
+    return player.activateAttack();
+  }
+
   _loop(ts) {
     let dt = ts - this.lastTs;
     this.lastTs = ts;
@@ -141,7 +148,69 @@ export class Game {
     this.tickCount++;
     for (const s of this.snakes) s.justAte = false;
 
-    // 0. Boost pre-step: while boosting, the player gets one extra, fully
+    const player = this.playerSnake;
+
+    // 0a. Attack pre-step: a one-shot forward dash+bite, resolved the same
+    // way as the boost pre-step (against a snapshot from before anyone else
+    // has moved this tick). If the destination cell holds a strictly smaller
+    // snake, the player bites through it - a clean, instant kill with its
+    // own big feedback. Anything else (wall, own body, an equal/bigger
+    // snake) is exactly as lethal to the player as a normal move into it -
+    // attack grants no protection, only a chance to kill instead of collide.
+    // An empty destination is just a normal move: the ability is still
+    // consumed, so this stays a deliberate, aimed action, not a free panic
+    // button.
+    if (player.alive && player.attackPending) {
+      player.attackPending = false;
+      player.attackCooldownLeft = CONFIG.ATTACK_COOLDOWN_TICKS;
+      const preOcc = buildOccupancyMap(this.snakes);
+      const nh = player.nextHead();
+      if (!inBounds(nh.x, nh.y)) {
+        player.kill();
+        this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
+        this._spawnDeathParticles(player.head, player.color);
+        this._endGame(false);
+        return;
+      }
+      const occupant = preOcc.get(cellKey(nh.x, nh.y));
+      if (occupant && occupant !== player) {
+        if (occupant.length < player.length) {
+          const bonus = Math.ceil(occupant.length * CONFIG.KILL_GROWTH_RATIO);
+          occupant.kill();
+          this.food.scatterAt(occupant.corpseFoodCells(), (x, y) => this.food.has(x, y));
+          player.grow(bonus);
+          player.eliminations += 1;
+          player.score += CONFIG.KILL_SCORE;
+          player.justAte = true;
+          this._spawnAttackKillEffect(nh, occupant.color);
+        } else {
+          player.kill();
+          this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
+          this._spawnDeathParticles(player.head, player.color);
+          this._endGame(false);
+          return;
+        }
+      } else if (occupant === player) {
+        player.kill();
+        this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
+        this._spawnDeathParticles(player.head, player.color);
+        this._endGame(false);
+        return;
+      }
+      if (this.food.has(nh.x, nh.y)) {
+        player.grow(1);
+        player.foodEaten++;
+        player.score += CONFIG.FOOD_SCORE;
+        player.justAte = true;
+        this.food.removeAt(nh.x, nh.y);
+        this._spawnEatParticles(nh);
+      }
+      player.commitMove(nh);
+    } else if (player.attackCooldownLeft > 0) {
+      player.attackCooldownLeft--;
+    }
+
+    // 0b. Boost pre-step: while boosting, the player gets one extra, fully
     // self-contained move before the shared tick even starts - resolved
     // against a snapshot of the world as it stood a moment ago (nobody else
     // has moved yet this tick), then AI react to the player's new position
@@ -149,7 +218,6 @@ export class Game {
     // than a cosmetic effect, without touching the AI/collision pipeline at
     // all. A boost-step death is unambiguous - the player drove into
     // something in isolation - so it's treated as a normal, fair death.
-    const player = this.playerSnake;
     if (player.alive && player.boostTicksLeft > 0) {
       const preOcc = buildOccupancyMap(this.snakes);
       const nh = player.nextHead();
@@ -357,6 +425,12 @@ export class Game {
       boostState = 'cooldown';
       boostSeconds = player.boostCooldownLeft * CONFIG.TICK_MS / 1000;
     }
+    let attackState = 'ready';
+    let attackSeconds = 0;
+    if (player.attackCooldownLeft > 0) {
+      attackState = 'cooldown';
+      attackSeconds = player.attackCooldownLeft * CONFIG.TICK_MS / 1000;
+    }
     this.hud.update({
       score: player.score,
       length: player.length,
@@ -365,6 +439,8 @@ export class Game {
       status,
       boostState,
       boostSeconds,
+      attackState,
+      attackSeconds,
     });
   }
 
@@ -487,6 +563,49 @@ export class Game {
     }
   }
 
+  // The signature moment: a bigger burst than a normal death, a bright
+  // shockwave ring in the player's own color (so it reads as "you did this"),
+  // and a floating callout - a kill should feel unmistakably different from
+  // an ordinary elimination.
+  _spawnAttackKillEffect(cell, victimColor) {
+    const cx = cell.x * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
+    const cy = cell.y * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
+    for (let i = 0; i < 26; i++) {
+      const angle = (Math.PI * 2 * i) / 26 + Math.random() * 0.25;
+      const speed = 90 + Math.random() * 140;
+      this.particles.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0,
+        maxLife: 500 + Math.random() * 250,
+        color: victimColor,
+      });
+    }
+    this.particles.push({
+      type: 'ring',
+      x: cx,
+      y: cy,
+      vx: 0,
+      vy: 0,
+      life: 0,
+      maxLife: 420,
+      color: this.playerColor,
+    });
+    this.particles.push({
+      type: 'text',
+      text: 'ELIMINATED',
+      x: cx,
+      y: cy - 10,
+      vx: 0,
+      vy: -26,
+      life: 0,
+      maxLife: 850,
+      color: '#ffffff',
+    });
+  }
+
   _stepParticles(dt) {
     if (!this.particles.length) return;
     const dtS = dt / 1000;
@@ -510,8 +629,9 @@ export class Game {
     ctx.clearRect(0, 0, w, h);
     this._renderBackground(ctx, w, h);
     this.food.render(ctx, CONFIG.CELL_SIZE);
+    const player = this.playerSnake;
     for (const snake of this.snakes) {
-      if (snake.alive) this._renderSnake(ctx, snake);
+      if (snake.alive) this._renderSnake(ctx, snake, player);
     }
     this._renderParticles(ctx);
   }
@@ -541,7 +661,7 @@ export class Game {
     ctx.fillRect(0, 0, w, h);
   }
 
-  _renderSnake(ctx, snake) {
+  _renderSnake(ctx, snake, player) {
     const cs = CONFIG.CELL_SIZE;
     const n = snake.body.length;
     for (let i = n - 1; i >= 0; i--) {
@@ -567,7 +687,35 @@ export class Game {
       this._renderPlayerMarker(ctx, snake);
     } else {
       this._renderAIIntentMarker(ctx, snake);
+      this._renderVulnerabilityMarker(ctx, snake, player);
     }
+  }
+
+  // A small white target chevron over an AI snake's head: only shown when
+  // it's actually smaller than the player, within realistic dash range, and
+  // the player's attack is ready - i.e. only when it's genuinely actionable
+  // information, not a permanent label on every weaker snake in the arena.
+  _renderVulnerabilityMarker(ctx, snake, player) {
+    if (!player || !player.alive) return;
+    if (snake.length >= player.length) return;
+    if (!player.canAttack()) return;
+    const dist = Math.abs(snake.head.x - player.head.x) + Math.abs(snake.head.y - player.head.y);
+    if (dist > CONFIG.ATTACK_VULNERABLE_RANGE) return;
+
+    const cs = CONFIG.CELL_SIZE;
+    const cx = snake.head.x * cs + cs / 2;
+    const cy = snake.head.y * cs - 7;
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+    ctx.save();
+    ctx.globalAlpha = 0.6 + 0.4 * pulse;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, cy - 4);
+    ctx.lineTo(cx + 5, cy - 4);
+    ctx.lineTo(cx, cy + 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   }
 
   // Lets the player read an AI's intent at a glance: a pulsing red outline
@@ -596,17 +744,26 @@ export class Game {
 
   // Pulsing outline + a floating "YOU" tag, so the player's snake is never
   // ambiguous even in a crowd of similarly-sized AI snakes. Boosting swaps
-  // the outline to a fast-pulsing bright cyan so the speed-up is unmistakable.
+  // the outline to a fast-pulsing bright cyan so the speed-up is unmistakable;
+  // a ready-to-use attack tints it a warm gold so "I can strike right now"
+  // is visible without ever looking away from the arena at the HUD button.
   _renderPlayerMarker(ctx, snake) {
     const cs = CONFIG.CELL_SIZE;
     const head = snake.body[0];
     const boosting = snake.boostTicksLeft > 0;
+    const attackReady = !boosting && snake.canAttack();
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / (boosting ? 80 : 220));
 
     ctx.save();
-    ctx.strokeStyle = boosting ? `rgba(120,230,255,${0.6 + 0.4 * pulse})` : `rgba(255,255,255,${0.45 + 0.35 * pulse})`;
+    if (boosting) {
+      ctx.strokeStyle = `rgba(120,230,255,${0.6 + 0.4 * pulse})`;
+    } else if (attackReady) {
+      ctx.strokeStyle = `rgba(255,190,90,${0.5 + 0.35 * pulse})`;
+    } else {
+      ctx.strokeStyle = `rgba(255,255,255,${0.45 + 0.35 * pulse})`;
+    }
     ctx.lineWidth = boosting ? 3 : 2;
-    ctx.shadowColor = boosting ? '#78e6ff' : snake.color;
+    ctx.shadowColor = boosting ? '#78e6ff' : attackReady ? '#ffbe5a' : snake.color;
     ctx.shadowBlur = boosting ? 12 + 8 * pulse : 6 + 6 * pulse;
     roundedSquare(ctx, head.x * cs + 1, head.y * cs + 1, cs - 2, cs - 2, cs * 0.35);
     ctx.stroke();
@@ -656,12 +813,26 @@ export class Game {
 
   _renderParticles(ctx) {
     for (const p of this.particles) {
-      const alpha = 1 - p.life / p.maxLife;
-      ctx.globalAlpha = Math.max(0, alpha);
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
-      ctx.fill();
+      const t = p.life / p.maxLife;
+      ctx.globalAlpha = Math.max(0, 1 - t);
+      if (p.type === 'ring') {
+        const radius = 4 + t * 28;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(1, 3 * (1 - t));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (p.type === 'text') {
+        ctx.fillStyle = p.color;
+        ctx.font = 'bold 13px Segoe UI, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.text, p.x, p.y);
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
   }

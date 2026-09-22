@@ -32,6 +32,9 @@ export const CONFIG = {
   BOOST_DURATION_TICKS: 10, // ~1.5s at TICK_MS=150 - the player moves 2 cells/tick instead of 1 for this long
   BOOST_COOLDOWN_TICKS: 27, // ~4s before boost can be used again after it ends
 
+  ATTACK_COOLDOWN_TICKS: 20, // ~3s - a one-shot forward dash+bite, shorter cooldown than boost since it's a precision tool, not a travel tool
+  ATTACK_VULNERABLE_RANGE: 8, // cells; how far out a smaller AI snake is flagged as "vulnerable" once attack is ready, so the player can plan a run at it
+
   PLAYER_COLOR: '#3ee08a',
   AI_COLORS: ['#ff5d5d', '#5db3ff', '#ffcf4d', '#c77dff', '#ff9f4d', '#4de0d6', '#ff6fb0'],
 

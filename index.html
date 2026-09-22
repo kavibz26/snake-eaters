@@ -8,23 +8,91 @@
 </head>
 <body>
 
+  <!-- Shared logo artwork: a coiled snake built from the same segmented
+       rounded-square language the game itself renders with, so the brand and
+       the gameplay visually match. Defined once, reused at two sizes below. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="logoSnake" viewBox="0 0 100 100">
+        <linearGradient id="logoSnakeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#78f5b0"/>
+          <stop offset="60%" stop-color="#3ee08a"/>
+          <stop offset="100%" stop-color="#1f8f57"/>
+        </linearGradient>
+        <g fill="url(#logoSnakeGrad)">
+          <rect x="47" y="93" width="13" height="13" rx="4"/>
+          <rect x="58" y="80" width="15" height="15" rx="4.5"/>
+          <rect x="63" y="64" width="17" height="17" rx="5"/>
+          <rect x="57" y="49" width="18" height="18" rx="5.5"/>
+          <rect x="41" y="42" width="19" height="19" rx="6"/>
+          <rect x="26" y="46" width="20" height="20" rx="6"/>
+          <rect x="18" y="60" width="21" height="21" rx="6.5"/>
+          <rect x="14" y="30" width="26" height="26" rx="8"/>
+        </g>
+        <circle cx="24" cy="39" r="3.2" fill="#0a0d12"/>
+        <circle cx="25" cy="38" r="1" fill="#fff"/>
+        <polygon points="16,50 20,50 17,57" fill="#f4fff8"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <section id="startScreen" class="screen">
-    <div class="panel">
-      <h1 class="title">Snake&nbsp;Eaters</h1>
+    <div class="start-card">
+      <div class="logo-lockup logo-lockup--hero">
+        <svg class="logo-icon logo-icon--hero" viewBox="0 0 100 100" aria-hidden="true"><use href="#logoSnake"/></svg>
+        <h1 class="wordmark">
+          <span class="wordmark-line wordmark-snake">Snake</span>
+          <span class="wordmark-line wordmark-eaters">Eaters</span>
+        </h1>
+      </div>
       <p class="subtitle">Grow. Hunt. Survive. Only one snake leaves the arena.</p>
-      <div class="skin-picker" id="skinPicker" role="group" aria-label="Choose a snake skin"></div>
-      <button id="playBtn" class="btn btn-primary">Play</button>
-      <div class="hint-grid">
-        <div><span class="key">WASD</span> / <span class="key">Arrows</span> Move</div>
-        <div><span class="key">Shift</span> Speed Boost</div>
-        <div><span class="key">Space</span> Pause</div>
-        <div><span class="key">R</span> Restart</div>
+
+      <button id="playBtn" class="btn btn-primary btn-play">Play Now</button>
+
+      <div class="start-section">
+        <h2 class="section-label">Choose Your Snake</h2>
+        <div class="skin-picker" id="skinPicker" role="group" aria-label="Choose a snake skin"></div>
+      </div>
+
+      <div class="start-section">
+        <h2 class="section-label">Controls</h2>
+        <div class="controls-grid">
+          <div class="control-card">
+            <span class="control-icon">🕹️</span>
+            <span class="control-keys"><span class="key">WASD</span><span class="key">↑↓←→</span></span>
+            <span class="control-desc">Move</span>
+          </div>
+          <div class="control-card control-card--boost">
+            <span class="control-icon">⚡</span>
+            <span class="control-keys"><span class="key">Shift</span></span>
+            <span class="control-desc">Speed Boost</span>
+          </div>
+          <div class="control-card control-card--attack">
+            <span class="control-icon">⚔</span>
+            <span class="control-keys"><span class="key">E</span></span>
+            <span class="control-desc">Attack Dash</span>
+          </div>
+          <div class="control-card control-card--secondary">
+            <span class="control-icon">⏸</span>
+            <span class="control-keys"><span class="key">Space</span></span>
+            <span class="control-desc">Pause</span>
+          </div>
+          <div class="control-card control-card--secondary">
+            <span class="control-icon">↻</span>
+            <span class="control-keys"><span class="key">R</span></span>
+            <span class="control-desc">Restart</span>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 
   <section id="gameScreen" class="screen hidden">
     <header class="hud">
+      <div class="logo-lockup logo-lockup--small" aria-hidden="true">
+        <svg class="logo-icon logo-icon--small" viewBox="0 0 100 100"><use href="#logoSnake"/></svg>
+        <span class="wordmark-small">Snake Eaters</span>
+      </div>
       <div class="hud-stat"><span class="hud-label">Score</span><span id="hudScore" class="hud-value">0</span></div>
       <div class="hud-stat"><span class="hud-label">Length</span><span id="hudLength" class="hud-value">0</span></div>
       <div class="hud-stat"><span class="hud-label">Kills</span><span id="hudEliminations" class="hud-value">0</span></div>
@@ -42,6 +110,7 @@
     </div>
 
     <div class="action-row">
+      <button id="attackBtn" class="btn btn-attack">⚔ Attack</button>
       <button id="boostBtn" class="btn btn-boost">⚡ Speed Boost</button>
     </div>
 

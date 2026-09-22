@@ -39,6 +39,7 @@ export class InputManager {
     this.onPauseToggle = null;
     this.onRestart = null;
     this.onBoost = null;
+    this.onAttack = null;
     this.touchStart = null;
 
     this._handleKeydown = this._handleKeydown.bind(this);
@@ -78,6 +79,10 @@ export class InputManager {
     }
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.key === 'Shift') {
       if (this.onBoost) this.onBoost();
+      return;
+    }
+    if (e.code === 'KeyE' || e.key === 'e' || e.key === 'E') {
+      if (this.onAttack) this.onAttack();
       return;
     }
     const dir = KEY_DIRECTIONS[e.code] || KEY_DIRECTIONS_BY_KEY[e.key];
