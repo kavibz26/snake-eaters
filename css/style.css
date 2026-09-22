@@ -21,6 +21,7 @@ html, body {
   color: var(--text);
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   overflow: hidden;
+  overscroll-behavior: none; /* stop pull-to-refresh / rubber-band bounce from leaking out of the fixed-position screens */
 }
 
 body {
@@ -37,10 +38,18 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 16px;
+  /* flex-start, not center: a centered flex container clips the far side of
+     any child taller than the viewport - scrollTop can't go negative, so
+     content above the centered position becomes permanently unreachable.
+     The panels below center themselves via their own auto margins instead,
+     which degrades to top-aligned (fully scrollable, nothing clipped) once
+     they no longer fit. */
+  justify-content: flex-start;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   gap: 18px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .panel {
@@ -51,6 +60,7 @@ body {
   text-align: center;
   max-width: 440px;
   width: 100%;
+  margin: auto;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
@@ -200,6 +210,8 @@ body {
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.12s ease, box-shadow 0.12s ease;
+  touch-action: manipulation; /* no double-tap-to-zoom delay */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn:active {
@@ -325,6 +337,8 @@ body {
   transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
   color: inherit;
   font: inherit;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .skin-card:hover {
@@ -429,7 +443,8 @@ body {
   font-size: 0.8rem;
   padding: 6px 12px;
   border-radius: 8px;
-  white-space: nowrap;
+  max-width: 100%;
+  overflow-wrap: anywhere; /* never a horizontal-overflow source, whatever the skin name's length */
 }
 
 .you-dot {
@@ -469,6 +484,9 @@ body {
   border-radius: 12px;
   border: 1px solid var(--panel-border);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+  touch-action: none; /* swipes on the board are game input, never a page-scroll gesture */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .overlay {
@@ -542,6 +560,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    touch-action: none; /* dpad drives the snake directly - never a scroll/zoom gesture */
+    -webkit-user-select: none;
+    user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
 
@@ -566,4 +587,70 @@ body {
   .btn-play { width: 100%; padding: 16px 24px; }
   .controls-grid { grid-template-columns: repeat(2, 1fr); }
   .wordmark-small { display: none; } /* icon alone is enough in the compact mobile HUD */
+
+  .btn-ghost { width: 44px; height: 44px; } /* comfortable touch target */
+}
+
+/* Extra-small phones (iPhone SE / 320-400px class) - tighten further so the
+   start screen needs as little scrolling as possible and nothing crowds. */
+@media (max-width: 400px) {
+  .screen { gap: 14px; }
+  .start-card, .panel { padding: 20px 14px 24px; }
+  .subtitle { font-size: 0.85rem; margin-bottom: 12px; }
+  .combat-rule { font-size: 0.8rem; padding: 10px 12px; margin-bottom: 16px; }
+  .logo-icon--hero { width: 76px; height: 76px; }
+  .wordmark-line { font-size: 1.6rem; }
+  .btn-play { padding: 14px 20px; font-size: 1.1rem; }
+  .start-section { margin-top: 20px; }
+  .skin-picker { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .skin-card { padding: 6px 4px 8px; }
+  .skin-card-name { font-size: 0.62rem; }
+  .controls-grid { gap: 8px; }
+  .control-card { padding: 10px 6px; }
+  .hud { gap: 8px; }
+  .hud-stat { min-width: 44px; padding: 4px 8px; }
+  .you-badge { font-size: 0.72rem; padding: 5px 10px; }
+}
+
+/* Short landscape (phones rotated sideways): stacking hud/board/controls
+   vertically like portrait would starve the board of height, so the touch
+   controls move beside the board instead of below it. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #gameScreen {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "hud  hud   hud"
+      "dpad arena boost";
+    align-items: center;
+    justify-items: center;
+    width: 100%;
+    height: 100%;
+    gap: 6px 10px;
+    padding: 6px;
+  }
+  #gameScreen .hud { grid-area: hud; width: 100%; gap: 8px; }
+  #gameScreen .hud-stat { padding: 3px 8px; min-width: 40px; }
+  #gameScreen .hud-value { font-size: 0.9rem; }
+  #gameScreen .you-badge { padding: 4px 8px; font-size: 0.7rem; }
+  #gameScreen .arena-wrap { grid-area: arena; width: 100%; height: 100%; max-height: 100%; }
+  #gameScreen #dpad { grid-area: dpad; margin: 0; }
+  #gameScreen .action-row { grid-area: boost; width: auto; max-width: none; }
+  #gameScreen .btn-boost { min-width: 0; width: auto; padding: 10px 16px; font-size: 0.8rem; }
+
+  @media (pointer: coarse) {
+    #gameScreen .dpad {
+      grid-template-columns: 44px 44px 44px;
+      grid-template-rows: 44px 44px;
+      gap: 4px;
+    }
+  }
+
+  .start-card, .panel { padding: 18px 20px; max-height: 100%; overflow-y: auto; }
+  .logo-lockup--hero { margin-bottom: 0; }
+  .logo-icon--hero { width: 64px; height: 64px; }
+  .wordmark-line { font-size: 1.5rem; }
+  .subtitle, .combat-rule { display: none; } /* reclaim vertical room in a very short viewport */
+  .start-section { margin-top: 14px; }
 }

@@ -31,8 +31,11 @@ export class Game {
 
   // High-res pixel buffer for crisp rendering; the element's on-screen box
   // size is controlled entirely by CSS (aspect-ratio) so it stays responsive.
+  // DPR is capped at 2 - beyond that the crispness gain is imperceptible but
+  // the pixel-fill cost is quadratic, which matters on phones with 3x/4x
+  // displays running six patterned snakes at once.
   _setupCanvas() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = CONFIG.GRID_COLS * CONFIG.CELL_SIZE;
     const h = CONFIG.GRID_ROWS * CONFIG.CELL_SIZE;
     this.canvas.width = w * dpr;

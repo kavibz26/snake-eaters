@@ -43,11 +43,16 @@ export class InputManager {
 
     this._handleKeydown = this._handleKeydown.bind(this);
     this._handleTouchStart = this._handleTouchStart.bind(this);
+    this._handleTouchMove = this._handleTouchMove.bind(this);
     this._handleTouchEnd = this._handleTouchEnd.bind(this);
 
     window.addEventListener('keydown', this._handleKeydown);
     if (canvas) {
       canvas.addEventListener('touchstart', this._handleTouchStart, { passive: true });
+      // Not passive: a swipe-to-turn gesture must never scroll/bounce the
+      // page - CSS touch-action:none on the canvas already covers modern
+      // browsers, this is the JS-level belt-and-suspenders backup.
+      canvas.addEventListener('touchmove', this._handleTouchMove, { passive: false });
       canvas.addEventListener('touchend', this._handleTouchEnd, { passive: true });
     }
     if (dpad) {
@@ -92,6 +97,10 @@ export class InputManager {
     this.touchStart = { x: t.clientX, y: t.clientY };
   }
 
+  _handleTouchMove(e) {
+    if (this.touchStart) e.preventDefault();
+  }
+
   _handleTouchEnd(e) {
     if (!this.touchStart) return;
     const t = e.changedTouches[0];
@@ -109,6 +118,7 @@ export class InputManager {
     window.removeEventListener('keydown', this._handleKeydown);
     if (this.canvas) {
       this.canvas.removeEventListener('touchstart', this._handleTouchStart);
+      this.canvas.removeEventListener('touchmove', this._handleTouchMove);
       this.canvas.removeEventListener('touchend', this._handleTouchEnd);
     }
   }
