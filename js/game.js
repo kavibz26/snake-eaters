@@ -3,6 +3,8 @@ import { Snake } from './snake.js';
 import { FoodManager } from './food.js';
 import { inBounds, cellsEqual, buildOccupancyMap } from './collision.js';
 import { decideAIDirection, getAIDisplayState } from './ai.js';
+import { SKINS, DEFAULT_SKIN_ID, getSkinById } from './skins.js';
+import { paintSnakeSegment, roundedSquare } from './snakeRender.js';
 
 const AI_PROFILES = ['forager', 'hunter', 'cautious'];
 
@@ -17,14 +19,14 @@ export class Game {
     this.accumulator = 0;
     this.particles = [];
     this.onGameOver = null; // callback({ victory, score, length, eliminations, remaining })
-    this.playerColor = CONFIG.PLAYER_COLOR; // overridable via setPlayerColor() for skins
+    this.playerSkin = getSkinById(DEFAULT_SKIN_ID); // overridable via setPlayerSkin() for skins
 
     this._loop = this._loop.bind(this);
     this._setupCanvas();
   }
 
-  setPlayerColor(color) {
-    if (color) this.playerColor = color;
+  setPlayerSkin(skin) {
+    if (skin) this.playerSkin = skin;
   }
 
   // High-res pixel buffer for crisp rendering; the element's on-screen box
@@ -436,6 +438,12 @@ export class Game {
     }
     [usedZones[0], usedZones[playerZoneIdx]] = [usedZones[playerZoneIdx], usedZones[0]];
 
+    // AI snakes each get one of the other skins for the match, shuffled so
+    // the lineup varies run to run - the player's current skin is excluded
+    // so nobody is a visual duplicate of the player.
+    const aiSkinPool = SKINS.filter((s) => s.id !== this.playerSkin.id);
+    shuffle(aiSkinPool);
+
     const dirNames = Object.keys(CONFIG.DIRECTIONS);
     const snakes = [];
     for (let i = 0; i < count; i++) {
@@ -466,7 +474,7 @@ export class Game {
         isPlayer,
         cells,
         direction: dir,
-        color: isPlayer ? this.playerColor : CONFIG.AI_COLORS[(i - 1) % CONFIG.AI_COLORS.length],
+        skin: isPlayer ? this.playerSkin : aiSkinPool[(i - 1) % aiSkinPool.length],
         profile: isPlayer ? null : AI_PROFILES[(i - 1) % AI_PROFILES.length],
       }));
     }
@@ -621,12 +629,9 @@ export class Game {
       const size = cs * (isHead ? 0.94 : 0.72 + 0.2 * t);
       const x = seg.x * cs + cs / 2;
       const y = seg.y * cs + cs / 2;
+      const alpha = isHead ? 1 : 0.55 + 0.45 * t;
 
-      ctx.fillStyle = isHead ? lighten(snake.color, snake.justAte ? 0.5 : 0.2) : snake.color;
-      ctx.globalAlpha = isHead ? 1 : 0.55 + 0.45 * t;
-      roundedSquare(ctx, x - size / 2, y - size / 2, size, size, size * 0.32);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      paintSnakeSegment(ctx, snake.skin, x, y, size, i, isHead, snake.justAte, alpha);
 
       if (isHead) {
         this._renderEyes(ctx, snake, x, y, size);
@@ -713,13 +718,20 @@ export class Game {
     const perpY = dir.x * offset;
     const fwdX = dir.x * offset;
     const fwdY = dir.y * offset;
+    const skin = snake.skin;
 
-    ctx.fillStyle = '#0d1117';
     for (const sign of [-1, 1]) {
       const ex = cx + fwdX + perpX * sign;
       const ey = cy + fwdY + perpY * sign;
+      if (skin.accent2) {
+        ctx.fillStyle = skin.accent2;
+        ctx.beginPath();
+        ctx.arc(ex, ey, size * 0.13, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#0d1117';
       ctx.beginPath();
-      ctx.arc(ex, ey, size * 0.1, 0, Math.PI * 2);
+      ctx.arc(ex, ey, size * 0.09, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -749,27 +761,6 @@ export class Game {
     }
     ctx.globalAlpha = 1;
   }
-}
-
-function roundedSquare(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function lighten(hex, amount) {
-  const c = hex.replace('#', '');
-  const r = parseInt(c.substring(0, 2), 16);
-  const g = parseInt(c.substring(2, 4), 16);
-  const b = parseInt(c.substring(4, 6), 16);
-  const lr = Math.round(r + (255 - r) * amount);
-  const lg = Math.round(g + (255 - g) * amount);
-  const lb = Math.round(b + (255 - b) * amount);
-  return `rgb(${lr},${lg},${lb})`;
 }
 
 function clamp(v, min, max) {

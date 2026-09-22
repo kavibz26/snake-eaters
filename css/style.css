@@ -306,30 +306,55 @@ body {
 }
 
 .skin-picker {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 10px;
   margin: 20px 0 4px;
 }
 
-.skin-swatch {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 2px solid transparent;
+.skin-card {
+  background: #1c242e;
+  border: 2px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 8px 6px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   cursor: pointer;
-  padding: 0;
-  transition: transform 0.12s ease, border-color 0.12s ease;
+  transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  color: inherit;
+  font: inherit;
 }
 
-.skin-swatch:hover {
-  transform: scale(1.1);
+.skin-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
-.skin-swatch.selected {
+.skin-card.selected {
   border-color: #fff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
+  background: #232d3a;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+.skin-preview {
+  width: 100%;
+  aspect-ratio: 1.4 / 1;
+  border-radius: 8px;
+  display: block;
+}
+
+.skin-card-name {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.25;
+  color: var(--text-dim);
+}
+
+.skin-card.selected .skin-card-name {
+  color: var(--text);
 }
 
 .final-stats {

@@ -3,10 +3,11 @@ import { CONFIG, isOpposite } from './config.js';
 let nextSnakeId = 1;
 
 export class Snake {
-  constructor({ isPlayer, cells, direction, color, profile }) {
+  constructor({ isPlayer, cells, direction, skin, profile }) {
     this.id = nextSnakeId++;
     this.isPlayer = isPlayer;
-    this.color = color;
+    this.skin = skin; // full visual identity - see js/skins.js and js/snakeRender.js
+    this.color = skin.ui; // bright representative color for HUD chrome / kill-feedback particles
     this.profile = profile || null; // AI behavior style, null for player
     this.body = cells.slice(); // [head, ..., tail], each {x,y}
     this.direction = direction; // current committed direction

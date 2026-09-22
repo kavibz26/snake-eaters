@@ -2,6 +2,7 @@ import { Game } from './game.js';
 import { Hud } from './hud.js';
 import { InputManager } from './input.js';
 import { SKINS, loadSavedSkin, saveSkin } from './skins.js';
+import { renderSkinPreview } from './snakeRender.js';
 
 const screens = {
   start: document.getElementById('startScreen'),
@@ -40,16 +41,16 @@ let selectedSkin = loadSavedSkin();
 function applySkin(skin) {
   selectedSkin = skin;
   saveSkin(skin.id);
-  game.setPlayerColor(skin.color);
+  game.setPlayerSkin(skin);
   youBadge.textContent = '';
   youBadge.appendChild(youDot);
   youBadge.append(`You are the ${skin.name} snake`);
-  youBadge.style.color = skin.color;
-  youBadge.style.borderColor = skin.color;
-  youBadge.style.background = skin.color + '1f';
-  youDot.style.background = skin.color;
-  youDot.style.boxShadow = `0 0 8px ${skin.color}`;
-  skinPicker.querySelectorAll('.skin-swatch').forEach((btn) => {
+  youBadge.style.color = skin.ui;
+  youBadge.style.borderColor = skin.ui;
+  youBadge.style.background = skin.ui + '1f';
+  youDot.style.background = skin.ui;
+  youDot.style.boxShadow = `0 0 8px ${skin.ui}`;
+  skinPicker.querySelectorAll('.skin-card').forEach((btn) => {
     btn.classList.toggle('selected', btn.dataset.skinId === skin.id);
   });
 }
@@ -57,11 +58,23 @@ function applySkin(skin) {
 for (const skin of SKINS) {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'skin-swatch';
+  btn.className = 'skin-card';
   btn.dataset.skinId = skin.id;
-  btn.style.background = skin.color;
   btn.title = skin.name;
   btn.setAttribute('aria-label', skin.name);
+
+  const preview = document.createElement('canvas');
+  preview.className = 'skin-preview';
+  preview.width = 140;
+  preview.height = 100;
+  renderSkinPreview(preview, skin);
+
+  const label = document.createElement('span');
+  label.className = 'skin-card-name';
+  label.textContent = `${skin.emoji} ${skin.name}`;
+
+  btn.appendChild(preview);
+  btn.appendChild(label);
   btn.addEventListener('click', () => applySkin(skin));
   skinPicker.appendChild(btn);
 }
@@ -103,7 +116,7 @@ game.onGameOver = (result) => {
 
 function beginRun() {
   pausedOverlay.classList.add('hidden');
-  game.setPlayerColor(selectedSkin.color);
+  game.setPlayerSkin(selectedSkin);
   showScreen('game');
   game.restart();
 }
