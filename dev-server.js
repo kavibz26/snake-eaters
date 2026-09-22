@@ -13,6 +13,7 @@ const MIME = {
   '.css': 'text/css',
   '.json': 'application/json',
   '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
 };
 
 http.createServer((req, res) => {

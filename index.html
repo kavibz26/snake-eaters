@@ -8,38 +8,10 @@
 </head>
 <body>
 
-  <!-- Shared logo artwork: a coiled snake built from the same segmented
-       rounded-square language the game itself renders with, so the brand and
-       the gameplay visually match. Defined once, reused at two sizes below. -->
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-    <defs>
-      <symbol id="logoSnake" viewBox="0 0 100 100">
-        <linearGradient id="logoSnakeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#78f5b0"/>
-          <stop offset="60%" stop-color="#3ee08a"/>
-          <stop offset="100%" stop-color="#1f8f57"/>
-        </linearGradient>
-        <g fill="url(#logoSnakeGrad)">
-          <rect x="47" y="93" width="13" height="13" rx="4"/>
-          <rect x="58" y="80" width="15" height="15" rx="4.5"/>
-          <rect x="63" y="64" width="17" height="17" rx="5"/>
-          <rect x="57" y="49" width="18" height="18" rx="5.5"/>
-          <rect x="41" y="42" width="19" height="19" rx="6"/>
-          <rect x="26" y="46" width="20" height="20" rx="6"/>
-          <rect x="18" y="60" width="21" height="21" rx="6.5"/>
-          <rect x="14" y="30" width="26" height="26" rx="8"/>
-        </g>
-        <circle cx="24" cy="39" r="3.2" fill="#0a0d12"/>
-        <circle cx="25" cy="38" r="1" fill="#fff"/>
-        <polygon points="16,50 20,50 17,57" fill="#f4fff8"/>
-      </symbol>
-    </defs>
-  </svg>
-
   <section id="startScreen" class="screen">
     <div class="start-card">
       <div class="logo-lockup logo-lockup--hero">
-        <svg class="logo-icon logo-icon--hero" viewBox="0 0 100 100" aria-hidden="true"><use href="#logoSnake"/></svg>
+        <img class="logo-icon logo-icon--hero" src="assets/profile.webp" alt="Snake Eaters">
         <h1 class="wordmark">
           <span class="wordmark-line wordmark-snake">Snake</span>
           <span class="wordmark-line wordmark-eaters">Eaters</span>
@@ -87,7 +59,7 @@
   <section id="gameScreen" class="screen hidden">
     <header class="hud">
       <div class="logo-lockup logo-lockup--small" aria-hidden="true">
-        <svg class="logo-icon logo-icon--small" viewBox="0 0 100 100"><use href="#logoSnake"/></svg>
+        <img class="logo-icon logo-icon--small" src="assets/profile.webp" alt="Snake Eaters">
         <span class="wordmark-small">Snake Eaters</span>
       </div>
       <div class="hud-stat"><span class="hud-label">Score</span><span id="hudScore" class="hud-value">0</span></div>

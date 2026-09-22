@@ -86,7 +86,11 @@ body {
 
 .logo-icon {
   flex-shrink: 0;
-  filter: drop-shadow(0 4px 10px rgba(62, 224, 138, 0.25));
+  display: block;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
 }
 
 .logo-icon--hero {
@@ -97,6 +101,7 @@ body {
 .logo-icon--small {
   width: 26px;
   height: 26px;
+  border-width: 1.5px;
 }
 
 .wordmark {
