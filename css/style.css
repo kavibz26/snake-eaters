@@ -76,6 +76,7 @@ body {
 }
 
 .logo-lockup--hero {
+  gap: 20px;
   margin-bottom: 6px;
 }
 
@@ -84,24 +85,28 @@ body {
   margin-right: 6px;
 }
 
+/* The official game logo artwork - shown whole (object-fit: contain, never
+   cropped to a circle) in a framed badge that matches the app's existing
+   card language, so it reads as branding rather than a profile picture. */
 .logo-icon {
   flex-shrink: 0;
   display: block;
-  object-fit: cover;
-  border-radius: 50%;
-  border: 2px solid var(--accent);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55);
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: #0a0d12;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
 .logo-icon--hero {
-  width: 72px;
-  height: 72px;
+  width: 112px;
+  height: 112px;
 }
 
 .logo-icon--small {
-  width: 26px;
-  height: 26px;
-  border-width: 1.5px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
 }
 
 .wordmark {
@@ -529,9 +534,9 @@ body {
   .btn-boost { min-width: 0; width: 100%; max-width: 320px; }
 
   .start-card { padding: 28px 18px 32px; }
-  .logo-lockup--hero { flex-direction: column; gap: 8px; }
+  .logo-lockup--hero { flex-direction: column; gap: 10px; }
   .wordmark { text-align: center; align-items: center; }
-  .logo-icon--hero { width: 60px; height: 60px; }
+  .logo-icon--hero { width: 96px; height: 96px; }
   .wordmark-line { font-size: 1.9rem; }
   .btn-play { width: 100%; padding: 16px 24px; }
   .controls-grid { grid-template-columns: repeat(2, 1fr); }
