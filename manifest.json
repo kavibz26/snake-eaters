@@ -1,0 +1,13 @@
+{
+  "name": "Snake Eaters",
+  "short_name": "Snake Eaters",
+  "description": "Grow. Hunt. Survive. Only one snake leaves the arena.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0d12",
+  "theme_color": "#0a0d12",
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
