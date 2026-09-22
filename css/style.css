@@ -157,8 +157,29 @@ body {
 
 .subtitle {
   color: var(--text-dim);
-  margin: 0 0 26px;
+  margin: 0 0 16px;
   font-size: 0.95rem;
+}
+
+.combat-rule {
+  background: #1c242e;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 0 0 22px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.rule-win {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.rule-lose {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 .btn {
@@ -240,10 +261,6 @@ body {
 
 .control-card--boost {
   border-color: #2a5566;
-}
-
-.control-card--attack {
-  border-color: #5a3a1a;
 }
 
 .control-card--secondary {
@@ -465,24 +482,6 @@ body {
   opacity: 0.7;
 }
 
-.btn-attack {
-  background: #1c242e;
-  color: #ffbe5a;
-  border: 1px solid #5a3a1a;
-  min-width: 180px;
-}
-
-.btn-attack.ready {
-  box-shadow: 0 0 14px rgba(255, 190, 90, 0.35);
-}
-
-.btn-attack.cooldown {
-  color: var(--text-dim);
-  border-color: var(--panel-border);
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
 /* --- touch d-pad, shown only on coarse pointers (touch devices) --- */
 
 .dpad {
@@ -522,7 +521,7 @@ body {
   .panel { padding: 28px 20px; }
   .hud-stat { min-width: 52px; padding: 5px 10px; }
   .hud-value { font-size: 1rem; }
-  .btn-boost, .btn-attack { min-width: 0; width: 100%; max-width: 320px; }
+  .btn-boost { min-width: 0; width: 100%; max-width: 320px; }
 
   .start-card { padding: 28px 18px 32px; }
   .logo-lockup--hero { flex-direction: column; gap: 8px; }

@@ -113,13 +113,6 @@ export class Game {
     return player.activateBoost(CONFIG.BOOST_DURATION_TICKS);
   }
 
-  activateAttack() {
-    if (this.state !== 'playing') return false;
-    const player = this.playerSnake;
-    if (!player || !player.alive) return false;
-    return player.activateAttack();
-  }
-
   _loop(ts) {
     let dt = ts - this.lastTs;
     this.lastTs = ts;
@@ -150,67 +143,7 @@ export class Game {
 
     const player = this.playerSnake;
 
-    // 0a. Attack pre-step: a one-shot forward dash+bite, resolved the same
-    // way as the boost pre-step (against a snapshot from before anyone else
-    // has moved this tick). If the destination cell holds a strictly smaller
-    // snake, the player bites through it - a clean, instant kill with its
-    // own big feedback. Anything else (wall, own body, an equal/bigger
-    // snake) is exactly as lethal to the player as a normal move into it -
-    // attack grants no protection, only a chance to kill instead of collide.
-    // An empty destination is just a normal move: the ability is still
-    // consumed, so this stays a deliberate, aimed action, not a free panic
-    // button.
-    if (player.alive && player.attackPending) {
-      player.attackPending = false;
-      player.attackCooldownLeft = CONFIG.ATTACK_COOLDOWN_TICKS;
-      const preOcc = buildOccupancyMap(this.snakes);
-      const nh = player.nextHead();
-      if (!inBounds(nh.x, nh.y)) {
-        player.kill();
-        this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
-        this._spawnDeathParticles(player.head, player.color);
-        this._endGame(false);
-        return;
-      }
-      const occupant = preOcc.get(cellKey(nh.x, nh.y));
-      if (occupant && occupant !== player) {
-        if (occupant.length < player.length) {
-          const bonus = Math.ceil(occupant.length * CONFIG.KILL_GROWTH_RATIO);
-          occupant.kill();
-          this.food.scatterAt(occupant.corpseFoodCells(), (x, y) => this.food.has(x, y));
-          player.grow(bonus);
-          player.eliminations += 1;
-          player.score += CONFIG.KILL_SCORE;
-          player.justAte = true;
-          this._spawnAttackKillEffect(nh, occupant.color);
-        } else {
-          player.kill();
-          this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
-          this._spawnDeathParticles(player.head, player.color);
-          this._endGame(false);
-          return;
-        }
-      } else if (occupant === player) {
-        player.kill();
-        this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
-        this._spawnDeathParticles(player.head, player.color);
-        this._endGame(false);
-        return;
-      }
-      if (this.food.has(nh.x, nh.y)) {
-        player.grow(1);
-        player.foodEaten++;
-        player.score += CONFIG.FOOD_SCORE;
-        player.justAte = true;
-        this.food.removeAt(nh.x, nh.y);
-        this._spawnEatParticles(nh);
-      }
-      player.commitMove(nh);
-    } else if (player.attackCooldownLeft > 0) {
-      player.attackCooldownLeft--;
-    }
-
-    // 0b. Boost pre-step: while boosting, the player gets one extra, fully
+    // 0. Boost pre-step: while boosting, the player gets one extra, fully
     // self-contained move before the shared tick even starts - resolved
     // against a snapshot of the world as it stood a moment ago (nobody else
     // has moved yet this tick), then AI react to the player's new position
@@ -289,7 +222,11 @@ export class Game {
     const deaths = new Map(); // snake -> killer snake | null
     const bounced = new Set();
 
-    // 5a. Wall and body collisions.
+    // 5a. Wall and body collisions. Touching ANY part of another snake -
+    // head or body, it doesn't matter - resolves purely by length: strictly
+    // bigger eats and survives, equal or smaller dies. Your own body is
+    // always fatal to touch regardless of size (you can't eat yourself),
+    // and a wall is always fatal too. Same rule for the player and every AI.
     for (const snake of aliveSnakes) {
       const nh = moves.get(snake);
       if (!inBounds(nh.x, nh.y)) {
@@ -297,8 +234,17 @@ export class Game {
         continue;
       }
       const occupant = occupancyMap.get(cellKey(nh.x, nh.y));
-      if (occupant) {
-        deaths.set(snake, occupant === snake ? null : occupant);
+      if (!occupant) continue;
+      if (occupant === snake) {
+        deaths.set(snake, null);
+        continue;
+      }
+      if (deaths.has(occupant)) continue; // already eliminated by someone else this tick
+      if (snake.length > occupant.length) {
+        this._creditKill(snake, occupant);
+        deaths.set(occupant, snake);
+      } else {
+        deaths.set(snake, occupant);
       }
     }
 
@@ -337,11 +283,18 @@ export class Game {
       snake.commitMove(moves.get(snake));
     }
 
-    // 7. Process deaths: scatter corpse food, spawn feedback particles.
-    for (const [snake] of deaths) {
+    // 7. Process deaths: scatter corpse food, spawn feedback particles. A
+    // death with a credited killer (eaten by a bigger snake) gets the bigger,
+    // more dramatic kill effect; an unattributed death (wall, self) gets the
+    // plain burst.
+    for (const [snake, killer] of deaths) {
       snake.kill();
       this.food.scatterAt(snake.corpseFoodCells(), (x, y) => this.food.has(x, y));
-      this._spawnDeathParticles(snake.head, snake.color);
+      if (killer) {
+        this._spawnKillEffect(snake.head, killer.color, snake.color);
+      } else {
+        this._spawnDeathParticles(snake.head, snake.color);
+      }
     }
 
     // 8. Keep food topped up.
@@ -369,22 +322,27 @@ export class Game {
     const survivors = group.filter((s) => s.length === maxLen);
     if (survivors.length === 1) {
       const winner = survivors[0];
-      const losers = group.filter((s) => s !== winner);
-      let bonus = 0;
-      for (const loser of losers) {
+      for (const loser of group) {
+        if (loser === winner) continue;
+        this._creditKill(winner, loser);
         deaths.set(loser, winner);
-        bonus += Math.ceil(loser.length * CONFIG.KILL_GROWTH_RATIO);
       }
-      winner.grow(bonus);
-      winner.eliminations += losers.length;
-      winner.score += CONFIG.KILL_SCORE * losers.length;
-      winner.justAte = true;
     } else {
       for (const s of survivors) bounced.add(s);
       for (const s of group) {
         if (!survivors.includes(s)) deaths.set(s, null);
       }
     }
+  }
+
+  // The one reward path for every kill in the game, however it happened
+  // (running into a bigger snake's body, or a head-to-head/crossing win):
+  // same growth bonus, same score, same elimination credit.
+  _creditKill(winner, loser) {
+    winner.grow(Math.ceil(loser.length * CONFIG.KILL_GROWTH_RATIO));
+    winner.eliminations += 1;
+    winner.score += CONFIG.KILL_SCORE;
+    winner.justAte = true;
   }
 
   _isCellBlocked(x, y) {
@@ -425,12 +383,6 @@ export class Game {
       boostState = 'cooldown';
       boostSeconds = player.boostCooldownLeft * CONFIG.TICK_MS / 1000;
     }
-    let attackState = 'ready';
-    let attackSeconds = 0;
-    if (player.attackCooldownLeft > 0) {
-      attackState = 'cooldown';
-      attackSeconds = player.attackCooldownLeft * CONFIG.TICK_MS / 1000;
-    }
     this.hud.update({
       score: player.score,
       length: player.length,
@@ -439,8 +391,6 @@ export class Game {
       status,
       boostState,
       boostSeconds,
-      attackState,
-      attackSeconds,
     });
   }
 
@@ -563,11 +513,12 @@ export class Game {
     }
   }
 
-  // The signature moment: a bigger burst than a normal death, a bright
-  // shockwave ring in the player's own color (so it reads as "you did this"),
+  // The signature moment for any kill (player or AI, either side of the
+  // combat rule): a bigger burst than a normal death, a bright shockwave
+  // ring in the killer's own color (so it reads as "this snake did it"),
   // and a floating callout - a kill should feel unmistakably different from
   // an ordinary elimination.
-  _spawnAttackKillEffect(cell, victimColor) {
+  _spawnKillEffect(cell, killerColor, victimColor) {
     const cx = cell.x * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
     const cy = cell.y * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
     for (let i = 0; i < 26; i++) {
@@ -591,7 +542,7 @@ export class Game {
       vy: 0,
       life: 0,
       maxLife: 420,
-      color: this.playerColor,
+      color: killerColor,
     });
     this.particles.push({
       type: 'text',
@@ -629,9 +580,8 @@ export class Game {
     ctx.clearRect(0, 0, w, h);
     this._renderBackground(ctx, w, h);
     this.food.render(ctx, CONFIG.CELL_SIZE);
-    const player = this.playerSnake;
     for (const snake of this.snakes) {
-      if (snake.alive) this._renderSnake(ctx, snake, player);
+      if (snake.alive) this._renderSnake(ctx, snake);
     }
     this._renderParticles(ctx);
   }
@@ -661,7 +611,7 @@ export class Game {
     ctx.fillRect(0, 0, w, h);
   }
 
-  _renderSnake(ctx, snake, player) {
+  _renderSnake(ctx, snake) {
     const cs = CONFIG.CELL_SIZE;
     const n = snake.body.length;
     for (let i = n - 1; i >= 0; i--) {
@@ -687,35 +637,7 @@ export class Game {
       this._renderPlayerMarker(ctx, snake);
     } else {
       this._renderAIIntentMarker(ctx, snake);
-      this._renderVulnerabilityMarker(ctx, snake, player);
     }
-  }
-
-  // A small white target chevron over an AI snake's head: only shown when
-  // it's actually smaller than the player, within realistic dash range, and
-  // the player's attack is ready - i.e. only when it's genuinely actionable
-  // information, not a permanent label on every weaker snake in the arena.
-  _renderVulnerabilityMarker(ctx, snake, player) {
-    if (!player || !player.alive) return;
-    if (snake.length >= player.length) return;
-    if (!player.canAttack()) return;
-    const dist = Math.abs(snake.head.x - player.head.x) + Math.abs(snake.head.y - player.head.y);
-    if (dist > CONFIG.ATTACK_VULNERABLE_RANGE) return;
-
-    const cs = CONFIG.CELL_SIZE;
-    const cx = snake.head.x * cs + cs / 2;
-    const cy = snake.head.y * cs - 7;
-    const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
-    ctx.save();
-    ctx.globalAlpha = 0.6 + 0.4 * pulse;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.moveTo(cx - 5, cy - 4);
-    ctx.lineTo(cx + 5, cy - 4);
-    ctx.lineTo(cx, cy + 4);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
   }
 
   // Lets the player read an AI's intent at a glance: a pulsing red outline
@@ -744,26 +666,17 @@ export class Game {
 
   // Pulsing outline + a floating "YOU" tag, so the player's snake is never
   // ambiguous even in a crowd of similarly-sized AI snakes. Boosting swaps
-  // the outline to a fast-pulsing bright cyan so the speed-up is unmistakable;
-  // a ready-to-use attack tints it a warm gold so "I can strike right now"
-  // is visible without ever looking away from the arena at the HUD button.
+  // the outline to a fast-pulsing bright cyan so the speed-up is unmistakable.
   _renderPlayerMarker(ctx, snake) {
     const cs = CONFIG.CELL_SIZE;
     const head = snake.body[0];
     const boosting = snake.boostTicksLeft > 0;
-    const attackReady = !boosting && snake.canAttack();
     const pulse = 0.5 + 0.5 * Math.sin(performance.now() / (boosting ? 80 : 220));
 
     ctx.save();
-    if (boosting) {
-      ctx.strokeStyle = `rgba(120,230,255,${0.6 + 0.4 * pulse})`;
-    } else if (attackReady) {
-      ctx.strokeStyle = `rgba(255,190,90,${0.5 + 0.35 * pulse})`;
-    } else {
-      ctx.strokeStyle = `rgba(255,255,255,${0.45 + 0.35 * pulse})`;
-    }
+    ctx.strokeStyle = boosting ? `rgba(120,230,255,${0.6 + 0.4 * pulse})` : `rgba(255,255,255,${0.45 + 0.35 * pulse})`;
     ctx.lineWidth = boosting ? 3 : 2;
-    ctx.shadowColor = boosting ? '#78e6ff' : attackReady ? '#ffbe5a' : snake.color;
+    ctx.shadowColor = boosting ? '#78e6ff' : snake.color;
     ctx.shadowBlur = boosting ? 12 + 8 * pulse : 6 + 6 * pulse;
     roundedSquare(ctx, head.x * cs + 1, head.y * cs + 1, cs - 2, cs - 2, cs * 0.35);
     ctx.stroke();

@@ -29,7 +29,6 @@ const hud = new Hud({
   remaining: document.getElementById('hudRemaining'),
   status: document.getElementById('hudStatus'),
   boostBtn: document.getElementById('boostBtn'),
-  attackBtn: document.getElementById('attackBtn'),
 });
 
 const game = new Game(canvas, hud);
@@ -80,15 +79,10 @@ function triggerBoost() {
   game.activateBoost();
 }
 
-function triggerAttack() {
-  game.activateAttack();
-}
-
 const input = new InputManager({ canvas, dpad });
 input.onDirection = (dir) => game.setPlayerDirection(dir);
 input.onPauseToggle = togglePause;
 input.onBoost = triggerBoost;
-input.onAttack = triggerAttack;
 input.onRestart = () => {
   if (game.state === 'gameover') beginRun();
 };
@@ -118,6 +112,5 @@ document.getElementById('playBtn').addEventListener('click', beginRun);
 document.getElementById('restartBtn').addEventListener('click', beginRun);
 document.getElementById('pauseBtn').addEventListener('click', togglePause);
 document.getElementById('boostBtn').addEventListener('click', triggerBoost);
-document.getElementById('attackBtn').addEventListener('click', triggerAttack);
 
 showScreen('start');
