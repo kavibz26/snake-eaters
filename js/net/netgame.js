@@ -20,6 +20,7 @@ const EMPTY_BODY = [];
 const OFFSET_TAU_MS = 65; // how fast a visual correction fades out
 const SNAP_THRESHOLD_CELLS = 3; // bigger disagreements are real desyncs: show the truth immediately
 const SYNC_COOLDOWN_MS = 750;
+const GO_FLASH_MS = 700; // how long "GO!" stays up after the countdown ends (purely visual)
 
 export class NetGame extends Game {
   constructor(canvas, hud) {
@@ -42,6 +43,7 @@ export class NetGame extends Game {
     this.onPauseRequest = null; // pause button => "leave match?" prompt
     this.onBoard = null; // (rows) => void, live leaderboard (order computed by the server)
     this._lastBanner = undefined;
+    this._showGo = false; // true only for a fresh match start (not when resuming after a reconnect)
     this._lastSync = 0;
     this._alive = 0;
     this._netLoop = this._netLoop.bind(this);
@@ -93,6 +95,7 @@ export class NetGame extends Game {
     this.predictor.reset();
     this.offset = null;
     this.startsAt = performance.now() + (msg.startsInMs || 0);
+    this._showGo = msg.startsInMs > 0;
     this.state = msg.startsInMs > 0 ? 'countdown' : 'playing';
     this.tracker.apply(msg.snap);
     this._applyViews(msg.snap, performance.now());
@@ -343,9 +346,11 @@ export class NetGame extends Game {
   _updateBanner(now) {
     let text = null;
     if (this.connectionText) text = this.connectionText;
-    else if (this.state === 'countdown') {
-      const secs = Math.ceil((this.startsAt - now) / 1000);
-      text = secs > 0 ? `Get ready... ${secs}` : 'GO!';
+    else if (this._showGo && now < this.startsAt + GO_FLASH_MS) {
+      // Purely presentational: the server decides when the match really starts; input is
+      // accepted as soon as it does (see _canAct), not when this banner disappears.
+      const remaining = this.startsAt - now;
+      text = remaining > 0 ? String(Math.ceil(remaining / 1000)) : 'GO!';
     } else if (this.state === 'spectating') text = 'You were eliminated - watching the rest of the match';
     this._setBanner(text);
   }
@@ -401,10 +406,10 @@ export class NetGame extends Game {
   // Cells to draw for a snake at `now`. Also what the latency tests sample.
   _bodyFor(v, now) {
     if (v.id === this.myId && this.predictionEnabled && this.predictor.active) {
-      const cells = this._localDisplay(now);
-      const dir = this.predictor.direction(now);
+      const cells = this._localDisplay(now); // also advances the predictor to `now`
       if (cells && cells.length) {
-        if (dir) v.direction = { x: dir.x, y: dir.y };
+        const dir = this.predictor.sim && this.predictor.sim.direction;
+        if (dir) v.direction = dir;
         return cells;
       }
     }

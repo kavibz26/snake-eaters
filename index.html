@@ -86,13 +86,15 @@
       <button id="pauseBtn" class="btn btn-ghost" aria-label="Pause">⏸</button>
     </header>
 
+    <ol id="mpBoard" class="mp-board hidden" aria-label="Live leaderboard"></ol>
+
     <div class="arena-wrap">
       <canvas id="gameCanvas"></canvas>
       <div id="pausedOverlay" class="overlay hidden">
         <div class="overlay-text">Paused</div>
       </div>
-      <ol id="mpBoard" class="mp-board hidden" aria-label="Live leaderboard"></ol>
       <div id="mpBanner" class="mp-banner hidden" role="status" aria-live="polite"></div>
+      <div id="mpToast" class="mp-toast hidden" role="status" aria-live="polite"></div>
       <div id="mpLeaveOverlay" class="overlay hidden">
         <div class="overlay-card">
           <div class="overlay-text overlay-text--sm">Leave match?</div>
@@ -164,6 +166,11 @@
       <h2 id="lobbyTitle" class="title title-sm">Lobby</h2>
       <span class="mp-conn hidden" id="lobbyConn" role="status"><span class="mp-conn-dot"></span><span class="mp-conn-text"></span></span>
       <div class="lobby-count"><span id="lobbyCount" class="lobby-count-num">0/6</span><span class="lobby-count-label">players</span></div>
+      <div id="lobbyCountdown" class="lobby-countdown hidden" aria-hidden="true">
+        <div class="lobby-countdown-num" id="lobbyCountdownNum">10</div>
+        <div class="lobby-countdown-label">seconds until the match starts</div>
+        <div class="lobby-progress"><i id="lobbyProgress"></i></div>
+      </div>
       <p id="lobbyStatus" class="mp-status" role="status" aria-live="polite">Waiting for more players...</p>
       <ul id="playerList" class="player-list"></ul>
       <div class="chat-box">
@@ -184,7 +191,7 @@
       <p id="mpResultSub" class="mp-status"></p>
       <ol id="standings" class="player-list"></ol>
       <p id="mpResultHint" class="mp-status">Pick a lobby to play again.</p>
-      <div class="mp-actions">
+      <div class="mp-actions result-actions">
         <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobbies</button>
       </div>
     </div>

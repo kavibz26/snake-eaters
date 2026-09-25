@@ -261,7 +261,7 @@ function mulberry32(a) {
 // `up`/`down` ms (+ random jitter), and a scripted player presses keys based on what
 // its OWN predicted snake looks like. Measures how responsive and how accurate the
 // prediction is, and how long the same turns would take without it.
-function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt = Infinity }) {
+function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt = Infinity, serverTickMs = TICK, rttStepAt = Infinity, rttStepMs = 0 }) {
   const rand = mulberry32(seed);
   const jit = () => rand() * jitter;
   const sim = new MatchSim([
@@ -288,7 +288,7 @@ function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt =
   const stats = { turns: 0, instantTurns: 0, snapshots: 0, mismatches: 0, mismatchAfterQuiet: 0, snapshotsAfterQuiet: 0, sent: 0 };
   const baseline = []; // ms from press to the first snapshot showing the turn
 
-  push(T0 + TICK, 'tick', 1);
+  push(T0 + serverTickMs, 'tick', 1);
   push(nextPress, 'press');
   push(nextPing, 'ping');
 
@@ -302,7 +302,8 @@ function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt =
     if (t > seconds * 1000) break;
 
     if (ev.kind === 'ping') {
-      const rtt = up + jit() + down + jit();
+      const extra = t >= rttStepAt ? rttStepMs : 0;
+      const rtt = up + jit() + down + jit() + extra;
       push(t + rtt, 'pong', rtt);
       push(t + 2000, 'ping');
     } else if (ev.kind === 'pong') {
@@ -325,11 +326,11 @@ function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt =
       }
       sim.tick();
       const snap = JSON.parse(JSON.stringify(sim.snapshot()));
-      const arrival = Math.max(lastArrival + 0.01, t + down + jit());
+      const arrival = Math.max(lastArrival + 0.01, t + down + jit() + (t >= rttStepAt ? rttStepMs / 2 : 0));
       lastArrival = arrival;
       push(arrival, 'snap', snap);
       if (sim.over) over = true;
-      else push(T0 + (ev.data + 1) * TICK, 'tick', ev.data + 1);
+      else push(T0 + (ev.data + 1) * serverTickMs, 'tick', ev.data + 1);
     } else if (ev.kind === 'snap') {
       const snap = ev.data;
       const me = snap.snakes.find((x) => x.id === 'me');
@@ -386,7 +387,7 @@ function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt =
           if (changes) {
             const mySeq = ++seq;
             stats.sent++;
-            push(t + up + jit(), 'inputArrives', { seq: mySeq, input: { dir: dirName(choice) } });
+            push(t + up + jit() + (t >= rttStepAt ? rttStepMs / 2 : 0), 'inputArrives', { seq: mySeq, input: { dir: dirName(choice) } });
             pred.addInput('dir', choice, mySeq, t);
             stats.turns++;
             // Accepted into the predicted state = it is the pending heading (or queued right
@@ -410,6 +411,11 @@ function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt =
   const avg = baseline.length ? baseline.reduce((a, b) => a + b, 0) / baseline.length : NaN;
   return { ...stats, deaths, ticks: sim.tickCount, baselineAvgMs: Math.round(avg), baselineSamples: baseline.length, over };
 }
+
+const ROBUSTNESS = [
+  { name: 'real server tick of 156ms (unpaced setInterval on Windows), ~100ms RTT', up: 50, down: 50, jitter: 10, serverTickMs: 156 },
+  { name: 'RTT jumps from 100ms to 300ms mid-match', up: 50, down: 50, jitter: 10, rttStepAt: 15000, rttStepMs: 200 },
+];
 
 const SCENARIOS = [
   { name: '~50ms RTT', up: 25, down: 25, jitter: 0 },
@@ -437,5 +443,19 @@ for (const sc of SCENARIOS) {
     assert.ok(rate < limit, `prediction mismatch rate ${(rate * 100).toFixed(1)}% under ${limit * 100}%`);
     const t = runs.reduce((a, r) => ({ turns: a.turns + r.turns, mm: a.mm + r.mismatches, sn: a.sn + r.snapshots, base: a.base + (r.baselineAvgMs || 0), n: a.n + (r.baselineAvgMs ? 1 : 0) }), { turns: 0, mm: 0, sn: 0, base: 0, n: 0 });
     console.log(`    [${sc.name}] turns=${t.turns}  local turn latency: 0 ms (predicted)  vs  ${Math.round(t.base / Math.max(1, t.n))} ms until the server's snapshot shows it (no prediction, before interpolation)  mismatch=${(100 * t.mm / t.sn).toFixed(1)}%`);
+  });
+}
+
+for (const sc of ROBUSTNESS) {
+  test(`network simulation: ${sc.name} - turns stay instant and the client re-converges`, () => {
+    const runs = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => simulate({ ...sc, seed, seconds: 45, stopInputsAt: 30000 }));
+    const total = runs.reduce((a, r) => ({ sn: a.sn + r.snapshots, mm: a.mm + r.mismatches }), { sn: 0, mm: 0 });
+    for (const r of runs) {
+      assert.equal(r.instantTurns, r.turns);
+      assert.equal(r.mismatchAfterQuiet, 0, 'no permanent desync once inputs stop');
+    }
+    const rate = total.mm / Math.max(1, total.sn);
+    console.log(`    [${sc.name}] mismatch=${(rate * 100).toFixed(1)}%`);
+    assert.ok(rate < 0.35, `mismatch rate ${(rate * 100).toFixed(1)}%`);
   });
 }

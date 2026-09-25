@@ -476,11 +476,13 @@ body {
 }
 
 #gameCanvas {
-  width: 100%;
-  max-width: 980px;
+  /* Fit inside the arena wrapper but ALWAYS keep the arena's 7:5 shape. (width:100% together with
+     max-height only clamped the height, which stretched the board on short/landscape screens.) */
+  width: auto;
+  height: auto;
+  max-width: min(100%, 980px);
   max-height: 100%;
   aspect-ratio: 7 / 5;
-  height: auto;
   display: block;
   border-radius: 12px;
   border: 1px solid var(--panel-border);
@@ -1059,26 +1061,25 @@ body {
 .mp-conn--bad { color: var(--danger); }
 .mp-conn .mp-conn-text { color: var(--text); }
 
-/* --- live leaderboard (inside the arena wrapper, never over the controls) ------------------------------ */
+/* --- live leaderboard (part of the layout flow: it can never sit on top of the arena) ---------------------- */
 
 .mp-board {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 1;
+  flex: 0 0 auto;
+  width: 100%;
+  max-width: 980px;
   margin: 0;
-  padding: 6px 8px;
+  padding: 4px 10px;
   list-style: none;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 128px;
-  max-width: 46%;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 1px;
   background: rgba(10, 13, 18, 0.72);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
-  font-size: 0.72rem;
-  pointer-events: none; /* never swallows swipes */
+  font-size: 0.76rem;
+  pointer-events: none; /* purely informational: never swallows a touch */
 }
 
 .board-row {
@@ -1195,17 +1196,6 @@ body {
   .lobby-card { padding: 12px; }
   .lobby-join { min-width: 92px; padding: 10px 14px; }
   .lobby-count-num { font-size: 2.2rem; }
-  /* Portrait phones: the board strip sits in the empty band above the arena, not on it. */
-  .mp-board {
-    left: 8px;
-    right: 8px;
-    max-width: none;
-    flex-direction: row;
-    flex-wrap: wrap;
-    column-gap: 10px;
-    min-width: 0;
-  }
-  .board-row { flex: 0 1 auto; }
 }
 
 @media (max-width: 400px) {
@@ -1218,7 +1208,6 @@ body {
   .lobby-card { padding: 8px 12px; }
   .lobby-count-num { font-size: 1.8rem; }
   .chat-log { max-height: 90px; min-height: 60px; }
-  .mp-board { top: 4px; right: 4px; font-size: 0.66rem; min-width: 110px; padding: 4px 6px; flex-direction: column; left: auto; }
   .chat-drawer .chat-log { max-height: 26vh; }
 }
 
@@ -1239,3 +1228,170 @@ body {
   #lobbyBrowserScreen .panel { max-width: 760px; }
   .lobby-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 }
+
+/* =========================================================================================
+   Polish pass: leaderboard placement, MP HUD, countdown, toast, lobby cards, results
+   ========================================================================================= */
+
+.board-row { flex: 0 1 auto; line-height: 1.55; }
+.board-name { max-width: 11ch; }
+
+/* --- multiplayer HUD on portrait phones: two rows instead of three, so the leaderboard strip
+       costs the arena almost nothing. (Badge + "Playing" text are redundant in multiplayer:
+       your nickname tag, the leaderboard highlight and the connection pill say the same.) ---- */
+@media (max-width: 560px) {
+  #gameScreen.mp-mode { gap: 6px; }
+  #gameScreen.mp-mode .you-badge,
+  #gameScreen.mp-mode .hud-status { display: none; }
+  #gameScreen.mp-mode #hudConn { margin-right: auto; }
+}
+
+/* Very narrow phones: the leaderboard shows the top 3 (plus you, if you are lower) on one line. */
+@media (max-width: 360px) {
+  .mp-board { flex-wrap: nowrap; overflow: hidden; column-gap: 10px; font-size: 0.72rem; }
+  .mp-board .board-row:nth-child(n+4):not(.board-row--me) { display: none; }
+  .board-name { max-width: 7ch; }
+}
+
+/* Short landscape (grid layout): the leaderboard lives in the left column, above the D-pad,
+   never on the arena and never on the controls. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #gameScreen .mp-board {
+    grid-area: dpad;
+    align-self: start;
+    justify-self: start;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    width: auto;
+    min-width: 108px;
+    max-width: 150px;
+    padding: 4px 6px;
+    font-size: 0.66rem;
+    row-gap: 0;
+  }
+  #gameScreen.mp-mode #dpad { align-self: end; }
+  #gameScreen.mp-mode .you-badge { display: none; }
+}
+
+/* --- connection pill states ---------------------------------------------------------------- */
+.mp-conn--pending { color: #ffcf4d; }
+.mp-conn--pending .mp-conn-dot { animation: connPulse 1s ease-in-out infinite; }
+.mp-conn--neutral { color: var(--text-dim); }
+.mp-conn .mp-conn-ms { color: var(--text-dim); font-weight: 600; margin-left: 4px; font-variant-numeric: tabular-nums; }
+@media (max-width: 400px) { #hudConn .mp-conn-label { display: none; } #hudConn .mp-conn-ms { margin-left: 0; color: var(--text); } }
+@keyframes connPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* --- countdown 3 / 2 / 1 / GO ---------------------------------------------------------------- */
+.mp-banner--count {
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 4.2rem;
+  font-weight: 900;
+  line-height: 1;
+  padding: 8px 34px;
+  background: rgba(10, 13, 18, 0.55);
+  border-color: transparent;
+  animation: countPop 0.5s ease-out;
+}
+.mp-banner--go { color: var(--accent); animation: countGo 0.7s ease-out forwards; }
+@keyframes countPop { from { transform: translate(-50%, -50%) scale(1.7); opacity: 0.15; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+@keyframes countGo { 0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.2; } 30% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; } 100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; } }
+
+/* --- join / leave toast (never blocks input) ------------------------------------------------------ */
+.mp-toast {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  max-width: 90%;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: rgba(10, 13, 18, 0.92);
+  border: 1px solid var(--panel-border);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  animation: toastIn 0.2s ease-out;
+}
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* --- lobby cards ---------------------------------------------------------------------------------- */
+.lobby-card { border-left: 4px solid #2a3442; }
+.lobby-card[data-state="waiting"] { border-left-color: var(--accent); }
+.lobby-card[data-state="countdown"] { border-left-color: #ffcf4d; }
+.lobby-card[data-state="running"] { border-left-color: var(--danger); }
+.lobby-card[data-state="full"] { border-left-color: #4a5566; }
+.lobby-card:not(.lobby-card--full):hover { border-color: rgba(255, 255, 255, 0.22); border-left-color: inherit; }
+.lobby-players { font-size: 1.05rem; }
+.lobby-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.lobby-state::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.lobby-card[data-state="countdown"] .lobby-state { color: #ffcf4d; }
+.lobby-card[data-state="countdown"] .lobby-state::before { background: #ffcf4d; animation: connPulse 1s ease-in-out infinite; }
+.lobby-card[data-state="running"] .lobby-state { color: #ff8a8a; }
+.lobby-card[data-state="running"] .lobby-state::before { background: var(--danger); }
+.lobby-card[data-state="full"] .lobby-state { color: var(--text-dim); }
+.lobby-card[data-state="full"] .lobby-state::before { background: #4a5566; }
+.lobby-card--full .lobby-name { color: var(--text-dim); }
+.lobby-join.is-joining { position: relative; color: transparent; pointer-events: none; }
+.lobby-join.is-joining::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(5, 19, 10, 0.35);
+  border-top-color: #05130a;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- waiting room ------------------------------------------------------------------------------------ */
+.lobby-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: #1c242e;
+  border: 1px solid rgba(255, 207, 77, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.lobby-countdown-num { font-size: 3rem; font-weight: 900; line-height: 1; color: #ffcf4d; font-variant-numeric: tabular-nums; }
+.lobby-countdown-label { font-size: 0.8rem; color: var(--text-dim); }
+.lobby-progress { width: 100%; height: 6px; border-radius: 3px; background: #2a3442; overflow: hidden; }
+.lobby-progress i { display: block; height: 100%; width: 100%; background: #ffcf4d; transition: width 0.3s linear; }
+.player-row--new { animation: rowIn 0.6s ease-out; }
+@keyframes rowIn { from { background: rgba(62, 224, 138, 0.35); transform: translateX(-6px); } to { background: #1c242e; transform: none; } }
+
+/* --- results ------------------------------------------------------------------------------------------- */
+.player-row--winner { border-color: rgba(255, 210, 63, 0.7); background: linear-gradient(90deg, rgba(255, 210, 63, 0.12), #1c242e 60%); }
+.rank { min-width: 34px; font-size: 1.05rem; }
+.standing-main { display: flex; flex: 1; min-width: 0; flex-direction: column; text-align: left; gap: 1px; }
+.standing-main .player-name { flex: none; }
+.standing-stats { font-size: 0.72rem; color: var(--text-dim); white-space: normal; }
+.result-actions .btn { min-height: 52px; font-size: 1.1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mp-banner--count, .mp-banner--go, .mp-toast, .player-row--new, .mp-conn--pending .mp-conn-dot,
+  .lobby-card[data-state="countdown"] .lobby-state::before, .lobby-join.is-joining::after { animation: none; }
+}
+
+/* Smooth hand-over between multiplayer screens (multiplayer only; single-player is untouched). */
+#lobbyBrowserScreen:not(.hidden),
+#lobbyScreen:not(.hidden),
+#mpResultsScreen:not(.hidden),
+#gameScreen.mp-mode:not(.hidden) { animation: screenIn 0.2s ease-out; }
+@keyframes screenIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  #lobbyBrowserScreen:not(.hidden), #lobbyScreen:not(.hidden), #mpResultsScreen:not(.hidden), #gameScreen.mp-mode:not(.hidden) { animation: none; }
+}
+
+/* Touch targets: in-game HUD buttons and Boost never drop below 44px, in any orientation. */
+#gameScreen .hud .btn-ghost { min-width: 44px; min-height: 44px; }
+#gameScreen .btn-boost { min-height: 44px; }

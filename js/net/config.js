@@ -26,3 +26,4 @@ export const CONNECT_TIMEOUT_MS = 45000; // free hosts can take ~a minute to wak
 export const WAKING_HINT_AFTER_MS = 4000;
 export const MAX_RECONNECT_ATTEMPTS = 8;
 export const PING_INTERVAL_MS = 2000;
+export const RTT_MEDIAN_WINDOW = 5; // pings the connection indicator's median is taken over

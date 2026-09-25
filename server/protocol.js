@@ -2,7 +2,7 @@ import { CONFIG } from '../js/config.js';
 
 // Bump when the wire format changes incompatibly; the server rejects clients
 // on a different version so a stale cached frontend gets a clear "refresh" error.
-export const PROTOCOL_VERSION = 3; // v3: public lobbies (no room codes); v2: sequenced inputs + acks, delta snapshots, chat
+export const PROTOCOL_VERSION = 3; // v3: public lobbies; v2: sequenced inputs + acks, delta snapshots, chat
 
 // --- public lobbies: the ONE place these numbers live (env-overridable) -----------------
 export const LOBBY_COUNT = Number(process.env.LOBBY_COUNT) || 6;

@@ -4,7 +4,7 @@
 // It carries intents up and authoritative state down - it never simulates.
 import {
   SERVER_URL, PROTOCOL_VERSION, CONNECT_TIMEOUT_MS, WAKING_HINT_AFTER_MS, MAX_RECONNECT_ATTEMPTS,
-  PING_INTERVAL_MS,
+  PING_INTERVAL_MS, RTT_MEDIAN_WINDOW,
 } from './config.js';
 
 // status: idle | connecting | connected | reconnecting | disconnected | unavailable
@@ -23,6 +23,7 @@ export class NetClient {
     this.pingTimer = null;
     this.rtt = null; // smoothed round trip in ms, measured from real ping/pong messages
     this.rttLast = null;
+    this.rttWindow = []; // the last few raw samples (for the median shown in the connection indicator)
   }
 
   on(event, fn) {
@@ -152,7 +153,16 @@ export class NetClient {
     if (!(sample >= 0 && sample < 10000)) return;
     this.rttLast = sample;
     this.rtt = this.rtt === null ? sample : this.rtt * 0.7 + sample * 0.3;
-    this._emit('latency', { rtt: this.rtt, sample });
+    this.rttWindow.push(sample);
+    if (this.rttWindow.length > RTT_MEDIAN_WINDOW) this.rttWindow.shift();
+    this._emit('latency', { rtt: this.rtt, sample, median: this.rttMedian });
+  }
+
+  // Median of the last few real round trips: one slow packet cannot swing it.
+  get rttMedian() {
+    if (!this.rttWindow.length) return null;
+    const sorted = [...this.rttWindow].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
   }
 
   // Leave the lobby but keep the connection (back to the lobby browser).
@@ -179,6 +189,7 @@ export class NetClient {
     this.you = null;
     this._stopPing();
     this.rtt = null;
+    this.rttWindow = [];
   }
 
   // --- incoming ---------------------------------------------------------------------------
@@ -286,6 +297,7 @@ export class NetClient {
     }
     const delay = Math.min(500 * (this.reconnectAttempt + 1), 2500);
     this.reconnectAttempt++;
+    this._emit('status', { status: 'reconnecting', detail: 'attempt', attempt: this.reconnectAttempt });
     this.reconnectTimer = setTimeout(() => this._tryReconnect(), delay);
   }
 

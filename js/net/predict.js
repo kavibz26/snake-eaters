@@ -28,8 +28,10 @@ import { DIR_VECS, dirIndex } from './snapcodec.js';
 
 const PLACEHOLDER_SKIN = { ui: '#ffffff' };
 const MAX_LEAD_TICKS = 6; // stop predicting further ahead if snapshots stall
-const PHI_WINDOW = 30;
-const RTT_WINDOW = 12;
+const PHI_WINDOW = 12;
+const PHI_SLEW_MS = 6; // max phase correction per snapshot
+const RTT_SHIFT_STREAK = 2; // consecutive pings that are trusted over the older ones when they are all far above/below them
+const RTT_WINDOW = 6; // ~12s of pings: how long a stale low sample can pin the lead
 
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -65,6 +67,7 @@ export class LocalPredictor {
     this.base = null; // authoritative snake state at baseTick
     this.food = new Map();
     this.inputs = []; // unacknowledged inputs, oldest first
+    this.lastSeq = 0; // highest sequence number ever added: inputs must arrive in strictly increasing order
     this.sim = null;
     this.eaten = new Set();
     this.simTick = 0;
@@ -72,8 +75,8 @@ export class LocalPredictor {
     this.curCells = [];
     this.phiSamples = [];
     this.phi = null;
-    this.rttSamples = [];
-    this.jitter = 0;
+    this.rttSamples = this.rttSamples || [];
+    this.jitter = this.jitter || 0;
     this.history = new Map(); // tick -> predicted head cell (used to measure accuracy)
   }
 
@@ -87,12 +90,36 @@ export class LocalPredictor {
     if (this.phiSamples.length > PHI_WINDOW) this.phiSamples.shift();
     const min = Math.min(...this.phiSamples);
     if (this.phi === null) this.phi = min;
-    else this.phi += clamp(min - this.phi, -3, 3); // slew-limited: no visible glide jumps
+    else this.phi += clamp(min - this.phi, -PHI_SLEW_MS, PHI_SLEW_MS); // slew-limited: no visible glide jumps
   }
 
   noteRtt(rttMs) {
+    // The lead follows the LOW end of recent samples (jitter only ever adds delay), which alone
+    // would take a whole window to notice the path changing for good. So when the last few pings
+    // are ALL clearly outside the older ones - above their low end, or below their median - treat
+    // it as a real level shift and forget the older samples (also so stale ones stop inflating the
+    // jitter estimate). "Clearly" scales with how jittery the link already was, so a naturally
+    // noisy connection does not trip it; a single spike or dip never does.
+    const n = this.rttSamples.length;
+    if (n >= RTT_SHIFT_STREAK) {
+      const older = this.rttSamples.slice(0, n - (RTT_SHIFT_STREAK - 1)).sort((a, b) => a - b);
+      const min = older[0];
+      const median = older[Math.floor(older.length / 2)];
+      const p75 = older[Math.floor(older.length * 0.75)];
+      const margin = Math.max(40, 1.5 * (p75 - min));
+      const recent = [...this.rttSamples.slice(n - (RTT_SHIFT_STREAK - 1)), rttMs];
+      if (recent.every((v) => v > min + margin) || recent.every((v) => v < median - margin)) {
+        this.rttSamples = recent;
+        this._updateJitter();
+        return;
+      }
+    }
     this.rttSamples.push(rttMs);
     if (this.rttSamples.length > RTT_WINDOW) this.rttSamples.shift();
+    this._updateJitter();
+  }
+
+  _updateJitter() {
     const sorted = [...this.rttSamples].sort((a, b) => a - b);
     this.jitter = sorted[Math.floor(sorted.length / 2)] - sorted[0];
   }
@@ -145,6 +172,8 @@ export class LocalPredictor {
 
   addInput(kind, dir, seq, now) {
     if (!this.active || this.phi === null) return false;
+    if (!(seq > this.lastSeq)) return false; // duplicate / out-of-order / stale: never buffered twice
+    this.lastSeq = seq;
     const tick = Math.max(this.baseTick + 1, Math.ceil(this._u(now)));
     this.inputs.push({ seq, kind, dir, tick, sentAt: now, done: false });
     this.rebuild(now);

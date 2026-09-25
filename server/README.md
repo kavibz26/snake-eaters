@@ -15,7 +15,7 @@ server/protocol.js  constants (lobby count / capacity / timers), nickname + chat
 
 - `LOBBY_COUNT` (default 6) fixed public lobbies, each holding at most `MAX_PLAYERS_PER_LOBBY`
   (default 6, never more than the number of skins). Both live in `server/protocol.js` and can be
-  overridden with environment variables. Players cannot create rooms.
+  overridden with environment variables.
 - Join is one synchronous check-and-insert on the server, so simultaneous joins can never exceed
   the limit. Capacity is never taken from the client.
 - 2+ connected players start an automatic countdown (`LOBBY_START_DELAY_MS`, 10 s; shortened to

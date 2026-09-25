@@ -4,7 +4,7 @@
 // and NetGame (in-match view). The server decides which lobbies exist, how many
 // players are in them and who may join - this file only displays that.
 import { NetClient } from './client.js';
-import { PROTOCOL_VERSION } from './config.js';
+import { PROTOCOL_VERSION, MAX_RECONNECT_ATTEMPTS } from './config.js';
 import { getSkinById } from '../skins.js';
 import { renderSkinPreview } from '../snakeRender.js';
 import { createChat } from './chat.js';
@@ -12,15 +12,26 @@ import { createBoard } from './board.js';
 
 const NICK_KEY = 'snakeEatersNick';
 
+// Connection-quality thresholds. They apply to the MEDIAN of the last few real pings and only
+// once enough samples exist, so one noisy measurement can never flag a connection as bad.
+const FAIR_RTT_MS = 120;
+const SLOW_RTT_MS = 250;
+const MIN_PING_SAMPLES = 3;
+
+const TOAST_MS = 2600;
+
 const FRIENDLY = {
   not_configured: 'Online multiplayer is not available yet - the game server has not been set up.',
   server_unavailable: "Can't reach the multiplayer server right now. Please try again in a moment.",
   lobby_full: 'That lobby just filled up. Pick another one.',
-  match_in_progress: 'That lobby is in the middle of a match. Pick another one.',
+  match_in_progress: 'That lobby just started a match. Pick another one.',
   invalid_lobby: 'That lobby is no longer available. Pick another one.',
   server_busy: 'The server is busy right now. Try again in a minute.',
   bad_state: 'You are already in a lobby.',
 };
+
+// Errors that mean "the list you were looking at was out of date".
+const STALE_LIST_ERRORS = new Set(['lobby_full', 'match_in_progress', 'invalid_lobby']);
 
 function friendly(err) {
   if (err && err.code === 'bad_version') {
@@ -37,6 +48,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
   const $ = (id) => document.getElementById(id);
   const el = {
     openBtn: $('multiplayerBtn'),
+    gameScreen: $('gameScreen'),
     browserStatus: $('browserStatus'),
     nick: $('mpNick'),
     skinPreview: $('mpSkinPreview'),
@@ -47,6 +59,9 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     lobbyTitle: $('lobbyTitle'),
     lobbyCount: $('lobbyCount'),
     lobbyStatus: $('lobbyStatus'),
+    countdown: $('lobbyCountdown'),
+    countdownNum: $('lobbyCountdownNum'),
+    progress: $('lobbyProgress'),
     playerList: $('playerList'),
     leaveLobbyBtn: $('leaveRoomBtn'),
     resultTitle: $('mpResultTitle'),
@@ -54,6 +69,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     standings: $('standings'),
     backToLobbiesBtn: $('backToLobbyBtn'),
     banner: $('mpBanner'),
+    toast: $('mpToast'),
     leaveOverlay: $('mpLeaveOverlay'),
     stayBtn: $('mpStayBtn'),
     leaveBtn: $('mpLeaveBtn'),
@@ -65,6 +81,16 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     hudConn: $('hudConn'),
   };
   const pills = [$('browserConn'), $('lobbyConn'), $('resultsConn'), el.hudConn];
+  for (const pill of pills) {
+    // label + ms live in separate spans so narrow screens can drop the word and keep the number
+    const text = pill.querySelector('.mp-conn-text');
+    text.textContent = '';
+    const label = document.createElement('span');
+    label.className = 'mp-conn-label';
+    const ms = document.createElement('span');
+    ms.className = 'mp-conn-ms';
+    text.append(label, ms);
+  }
 
   const net = new NetClient();
   netGame.attach(net);
@@ -82,10 +108,12 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
   let joining = false;
   let unread = 0;
   let inMatch = false;
-  let maxPlayers = 6; // replaced by what the server reports; never used to decide capacity
   let countdownTimer = null;
   let countdownEndsAt = 0;
-  const cards = new Map(); // lobby id -> { li, count, state, btn, pips }
+  let countdownTotalMs = 1;
+  let toastTimer = null;
+  let roster = null; // id -> { name, connected } of the lobby we are in, to announce joins/leaves
+  const cards = new Map(); // lobby id -> { li, count, state, btn, pips, data }
 
   const go = (name) => { screen = name; showScreen(name); updateConn(); };
 
@@ -112,25 +140,39 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     return canvas;
   }
 
-  // --- connection indicator (informational; the ms figure is a REAL measured ping) ------------------------
+  // --- connection indicator ------------------------------------------------------------------------------
+  // States: Connecting / Connected / Reconnecting (n/max) / Disconnected. While connected it shows the
+  // MEDIAN of the last few real ping round trips, coloured only once there are enough samples.
+
+  function connState() {
+    const status = net.status;
+    if (status === 'connecting') return { cls: 'pending', label: 'Connecting...', ms: '' };
+    if (status === 'reconnecting') {
+      const n = net.reconnectAttempt;
+      return { cls: 'pending', label: n > 0 ? `Reconnecting... ${n}/${MAX_RECONNECT_ATTEMPTS}` : 'Reconnecting...', ms: '' };
+    }
+    if (status === 'disconnected' || status === 'unavailable') return { cls: 'bad', label: 'Disconnected', ms: '' };
+    if (status === 'idle') return null;
+    const median = net.rttMedian;
+    if (median === null) return { cls: 'neutral', label: 'Connected', ms: '' };
+    const ms = `${Math.round(median)} ms`;
+    if (net.rttWindow.length < MIN_PING_SAMPLES) return { cls: 'neutral', label: 'Connected', ms };
+    if (median >= SLOW_RTT_MS) return { cls: 'bad', label: 'Slow connection', ms };
+    if (median >= FAIR_RTT_MS) return { cls: 'warn', label: 'Connected', ms };
+    return { cls: 'ok', label: 'Connected', ms };
+  }
 
   function updateConn() {
-    const status = net.status;
-    let text = 'Connected';
-    let cls = 'ok';
-    if (status === 'reconnecting') { text = 'Reconnecting...'; cls = 'warn'; }
-    else if (status === 'connecting') { text = 'Connecting...'; cls = 'warn'; }
-    else if (status === 'disconnected' || status === 'unavailable') { text = 'Disconnected'; cls = 'bad'; }
-    else if (status === 'idle') { text = ''; }
-    else if (net.rtt !== null) text = `Connected · ${Math.round(net.rtt)} ms`;
-
+    const st = connState();
     const forScreen = { browser: pills[0], lobby: pills[1], mpResults: pills[2], game: inMatch ? pills[3] : null }[screen];
     for (const pill of pills) {
-      const active = pill === forScreen && text !== '';
+      const active = pill === forScreen && st !== null;
       pill.classList.toggle('hidden', !active);
       if (!active) continue;
-      pill.className = `mp-conn mp-conn--${cls}`;
-      pill.querySelector('.mp-conn-text').textContent = text;
+      pill.className = `mp-conn mp-conn--${st.cls}`;
+      pill.querySelector('.mp-conn-label').textContent = st.label;
+      pill.querySelector('.mp-conn-ms').textContent = st.ms ? `· ${st.ms}` : '';
+      pill.title = st.ms ? 'Round-trip time to the game server (median of your last 5 pings)' : '';
     }
   }
   net.on('latency', updateConn);
@@ -156,7 +198,6 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     try {
       const list = await net.browseLobbies();
       if (screen !== 'browser') return;
-      maxPlayers = list.max;
       renderLobbyList(list.lobbies);
       if (!keepMessage) setStatus(el.browserStatus, '');
     } catch (err) {
@@ -164,6 +205,14 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       setStatus(el.browserStatus, friendly(err), 'error');
       el.retryBtn.classList.remove('hidden');
     }
+  }
+
+  // Silent re-sync of the list (used when a join was refused because our view was stale).
+  async function refreshLobbies() {
+    try {
+      const list = await net.browseLobbies();
+      if (screen === 'browser') renderLobbyList(list.lobbies);
+    } catch { /* the status line already explains the failed join */ }
   }
 
   function renderLobbyList(list) {
@@ -195,7 +244,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       btn.addEventListener('click', () => joinLobby(l.id));
       li.append(info, btn);
       el.lobbyList.appendChild(li);
-      cards.set(l.id, { li, count, state, btn, pips, name: l.name });
+      cards.set(l.id, { li, count, state, btn, pips, data: null });
       updateCard(l);
     }
   }
@@ -206,39 +255,45 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     if (!c) return;
     const full = u.p >= u.m;
     const running = u.s === 'running';
+    const unavailable = full || running;
     c.count.textContent = `🐍 ${u.p}/${u.m} players`;
-    c.state.textContent = full ? 'Full' : running ? 'Match in progress' : u.s === 'countdown' ? 'Starting soon' : 'Waiting for players';
-    c.btn.textContent = full ? 'FULL' : running ? 'IN MATCH' : 'JOIN';
-    c.btn.disabled = full || running || joining;
-    c.btn.classList.toggle('btn-secondary', full || running);
-    c.btn.classList.toggle('btn-primary', !(full || running));
-    c.li.classList.toggle('lobby-card--full', full || running);
+    c.state.textContent = full ? 'Full' : running ? 'In game' : u.s === 'countdown' ? 'Starting' : 'Waiting';
+    if (!c.btn.classList.contains('is-joining')) c.btn.textContent = full ? 'FULL' : running ? 'IN GAME' : 'JOIN';
+    c.btn.disabled = unavailable || joining;
+    c.btn.setAttribute('aria-label', `${full ? 'Full' : running ? 'In game' : 'Join'} ${(c.data && c.data.name) || u.name || u.id}, ${u.p} of ${u.m} players`);
+    c.btn.classList.toggle('btn-secondary', unavailable);
+    c.btn.classList.toggle('btn-primary', !unavailable);
+    c.li.classList.toggle('lobby-card--full', unavailable);
     c.li.dataset.state = full ? 'full' : u.s;
     [...c.pips.children].forEach((pip, i) => pip.classList.toggle('on', i < u.p));
     c.pips.title = `${u.p} of ${u.m} slots taken`;
-    c.data = u;
+    c.data = { ...u, name: u.name || (c.data && c.data.name) };
   }
 
   net.on('lobby_update', (u) => { if (screen === 'browser') updateCard(u); });
 
-  function setJoining(value) {
+  function setJoining(value, id) {
     joining = value;
-    for (const c of cards.values()) if (c.data) updateCard(c.data);
+    for (const [cid, c] of cards) {
+      c.btn.classList.toggle('is-joining', value && cid === id);
+      if (c.data) updateCard(c.data);
+      if (value && cid === id) c.btn.textContent = 'JOINING';
+    }
   }
 
   async function joinLobby(id) {
-    if (joining) return;
+    if (joining) return; // double-click / double-tap safe: the flag is set before anything async
     const nick = cleanNick(el.nick.value);
     try { localStorage.setItem(NICK_KEY, nick); } catch { /* ignore */ }
-    setJoining(true);
+    setJoining(true, id);
     setStatus(el.browserStatus, 'Joining...');
     try {
       const joined = await net.joinLobby(id, nick, getSelectedSkin().id);
       onJoined(joined);
     } catch (err) {
-      // The list on screen is kept current by server pushes, so it already reflects why we were refused.
       setStatus(el.browserStatus, friendly(err), 'error');
       if (err.code === 'server_unavailable') el.retryBtn.classList.remove('hidden');
+      else if (STALE_LIST_ERRORS.has(err.code)) refreshLobbies(); // make sure what we show matches the server
     } finally {
       setJoining(false);
     }
@@ -265,19 +320,57 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       setYouBadge(selected);
     }
     setStatus(el.browserStatus, '');
+    roster = null; // first render of this lobby: nothing to announce yet
     renderLobby(msg.lobby, note);
     go('lobby');
+  }
+
+  // Compares the roster with the previous one and tells the player, quietly, what changed.
+  function announceRosterChanges(l) {
+    const next = new Map(l.players.map((p) => [p.id, { name: p.name, connected: p.connected }]));
+    const you = net.you && net.you.id;
+    const added = [];
+    if (roster) {
+      for (const [id, p] of next) {
+        if (id === you) continue;
+        const before = roster.get(id);
+        if (!before) { added.push(id); notify(`${p.name} joined`, 'join'); }
+        else if (before.connected && !p.connected) notify(`${p.name} lost connection`, 'warn');
+        else if (!before.connected && p.connected) notify(`${p.name} reconnected`, 'join');
+      }
+      for (const [id, p] of roster) if (id !== you && !next.has(id)) notify(`${p.name} left`, 'leave');
+    }
+    roster = next;
+    return added;
+  }
+
+  // In the waiting room: a line in the chat log. In a match: a short toast that never blocks input.
+  function notify(text) {
+    if (screen === 'lobby') {
+      lobbyChat.notice(text);
+      return;
+    }
+    if (screen !== 'game') return;
+    gameChat.notice(text);
+    el.toast.textContent = text;
+    el.toast.classList.remove('hidden');
+    el.toast.style.animation = 'none';
+    void el.toast.offsetWidth; // restart the entrance animation for back-to-back toasts
+    el.toast.style.animation = '';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.toast.classList.add('hidden'), TOAST_MS);
   }
 
   function renderLobby(l, note) {
     const you = net.you && net.you.id;
     el.lobbyTitle.textContent = l.name;
     el.lobbyCount.textContent = `${l.players.length}/${l.max}`;
+    const added = new Set(announceRosterChanges(l));
 
     el.playerList.textContent = '';
     for (const p of l.players) {
       const li = document.createElement('li');
-      li.className = 'player-row' + (p.connected ? '' : ' player-row--dc') + (p.id === you ? ' player-row--me' : '');
+      li.className = 'player-row' + (p.connected ? '' : ' player-row--dc') + (p.id === you ? ' player-row--me' : '') + (added.has(p.id) ? ' player-row--new' : '');
       li.appendChild(miniSkin(p.skinId));
       const name = document.createElement('span');
       name.className = 'player-name';
@@ -298,11 +391,20 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     // Waiting for a second player / counting down to an automatic start / starting.
     clearInterval(countdownTimer);
     const connected = l.players.filter((p) => p.connected).length;
+    const counting = l.state === 'countdown';
+    el.countdown.classList.toggle('hidden', !counting);
+    if (counting) {
+      countdownEndsAt = performance.now() + l.startsInMs;
+      countdownTotalMs = Math.max(l.startsInMs, 1000);
+    }
     const paint = () => {
       let text;
       let kind;
-      if (l.state === 'countdown') {
-        const secs = Math.max(0, Math.ceil((countdownEndsAt - performance.now()) / 1000));
+      if (counting) {
+        const left = Math.max(0, countdownEndsAt - performance.now());
+        const secs = Math.ceil(left / 1000);
+        el.countdownNum.textContent = String(secs);
+        el.progress.style.width = `${Math.max(0, Math.min(100, (left / countdownTotalMs) * 100))}%`;
         text = `Match starts in ${secs}s - more players can still join.`;
         kind = 'ok';
       } else if (l.state === 'running') { text = 'Game starting...'; kind = 'ok'; }
@@ -310,10 +412,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       else text = 'Get ready...';
       setStatus(el.lobbyStatus, note ? `${note} ${text}` : text, kind);
     };
-    if (l.state === 'countdown') {
-      countdownEndsAt = performance.now() + l.startsInMs;
-      countdownTimer = setInterval(paint, 250);
-    }
+    if (counting) countdownTimer = setInterval(paint, 250);
     paint();
   }
 
@@ -327,11 +426,15 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     stopMatchUi();
     lobbyChat.clear();
     gameChat.clear();
+    roster = null;
     deactivate();
     openBrowser(message, kind);
   }
 
-  net.on('lobby', (l) => { if (screen === 'lobby') renderLobby(l); });
+  net.on('lobby', (l) => {
+    if (screen === 'lobby') renderLobby(l);
+    else if (screen === 'game') announceRosterChanges(l); // quiet toast for players who drop / return mid-match
+  });
 
   // --- chat (scoped to the lobby we are in; the server only sends it to its members) ----------------------
 
@@ -383,10 +486,18 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
 
   // --- in-match ------------------------------------------------------------------------------------------------
 
+  // Big 3 / 2 / 1 / GO! numerals for the countdown; ordinary text for connection / spectating messages.
   netGame.onBanner = (text) => {
-    el.banner.textContent = text || '';
-    el.banner.classList.toggle('hidden', !text);
-    el.banner.classList.toggle('mp-banner--big', Boolean(text) && /^(Get ready|GO)/.test(text));
+    const b = el.banner;
+    const isCount = Boolean(text) && /^(\d|GO!)$/.test(text);
+    b.textContent = text || '';
+    b.classList.toggle('hidden', !text);
+    b.classList.remove('mp-banner--count', 'mp-banner--go');
+    if (isCount) {
+      void b.offsetWidth; // restart the pop animation for every new numeral
+      b.classList.add('mp-banner--count');
+      if (text === 'GO!') b.classList.add('mp-banner--go');
+    }
   };
 
   // Live leaderboard: order, scores and alive flags all come from the server's snapshots.
@@ -398,21 +509,26 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
 
   function startMatchUi() {
     inMatch = true;
+    el.gameScreen.classList.add('mp-mode');
     board.clear();
     el.board.classList.remove('hidden');
     el.chatToggle.classList.remove('hidden');
     unread = 0;
     el.chatBadge.classList.add('hidden');
+    el.toast.classList.add('hidden');
   }
 
   function stopMatchUi() {
     inMatch = false;
+    el.gameScreen.classList.remove('mp-mode');
+    clearTimeout(toastTimer);
     board.clear();
     el.board.classList.add('hidden');
     el.chatToggle.classList.add('hidden');
     el.chatBadge.classList.add('hidden');
     el.chatDrawer.classList.add('hidden');
     el.leaveOverlay.classList.add('hidden');
+    el.toast.classList.add('hidden');
     el.hudConn.classList.add('hidden');
   }
 
@@ -454,10 +570,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     } else if (status === 'connecting' && detail === 'waking' && screen === 'browser') {
       setStatus(el.browserStatus, 'Waking the server up - the first connection can take up to a minute...');
     }
-  });
-
-  // The connection died while browsing (not inside a lobby): say so and offer a retry.
-  net.on('status', ({ status }) => {
+    // The connection died while browsing (not inside a lobby): say so and offer a retry.
     if (screen === 'browser' && (status === 'disconnected' || status === 'unavailable') && !joining) {
       setStatus(el.browserStatus, 'Lost connection to the server.', 'error');
       el.retryBtn.classList.remove('hidden');
@@ -470,10 +583,13 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     netGame.stop();
     stopMatchUi();
     deactivate();
+    roster = null;
     openBrowser('Disconnected from the server, and your slot in the lobby has expired.', 'error');
   });
 
   // --- results (order, winner and survival all decided by the server) -------------------------------------------------
+
+  const MEDALS = ['🥇', '🥈', '🥉'];
 
   function showResults(msg) {
     const you = msg.results.find((r) => r.id === netGame.myId) ? netGame.myId : null;
@@ -487,24 +603,28 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     el.standings.textContent = '';
     for (const r of msg.results) {
       const li = document.createElement('li');
-      li.className = 'player-row' + (r.id === you ? ' player-row--me' : '');
+      li.className = 'player-row' + (r.id === you ? ' player-row--me' : '') + (r.id === msg.winnerId ? ' player-row--winner' : '');
       const rank = document.createElement('span');
       rank.className = 'rank';
-      rank.textContent = `#${r.rank}`;
+      rank.textContent = r.id === msg.winnerId && r.rank === 1 ? MEDALS[0] : (r.rank <= 3 ? MEDALS[r.rank - 1] : `#${r.rank}`);
+      rank.title = `Rank ${r.rank}`;
       li.appendChild(rank);
       li.appendChild(miniSkin(r.skinId, 42, 30));
+      const main = document.createElement('span');
+      main.className = 'standing-main';
       const name = document.createElement('span');
       name.className = 'player-name';
       name.textContent = r.id === you ? `${r.name} (you)` : r.name;
-      li.appendChild(name);
+      const stats = document.createElement('span');
+      stats.className = 'standing-stats';
+      // Only figures the server actually reports: score, kills and final length.
+      stats.textContent = `${r.score} pts · ${r.kills} ${r.kills === 1 ? 'kill' : 'kills'} · length ${r.length}`;
+      main.append(name, stats);
+      li.appendChild(main);
       const status = document.createElement('span');
       status.className = 'tag ' + (r.survived ? 'tag--you' : 'tag--dc');
       status.textContent = r.survived ? 'SURVIVED' : 'ELIMINATED';
       li.appendChild(status);
-      const stats = document.createElement('span');
-      stats.className = 'standing-stats';
-      stats.textContent = `${r.score} pts - ${r.kills} kills`;
-      li.appendChild(stats);
       el.standings.appendChild(li);
     }
     go('mpResults');
@@ -516,6 +636,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     deactivate();
     lobbyChat.clear();
     gameChat.clear();
+    roster = null;
     openBrowser();
   });
 

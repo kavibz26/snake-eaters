@@ -1,5 +1,5 @@
 // Public lobbies. The server owns a FIXED set of lobbies (LOBBY_COUNT, each holding
-// at most MAX_PLAYERS_PER_LOBBY players); players just pick one - no room codes,
+// at most MAX_PLAYERS_PER_LOBBY players); players just pick one,
 // no player-created rooms. Everything here is authoritative: capacity, who is
 // inside, when a match starts, and which lobbies can currently be joined.
 //
@@ -269,7 +269,28 @@ export class Lobby {
   _beginPlaying() {
     if (!this.match) return;
     this.phase = 'playing';
-    this.tickTimer = setInterval(() => this._tick(), CONFIG.TICK_MS);
+    this.tickCount = 0;
+    this.tickStart = performance.now();
+    this._scheduleTick();
+  }
+
+  // Drift-free scheduling: tick k is due at start + k * TICK_MS, and each timeout is computed from
+  // that target. (setInterval(150) rounds up to the OS timer quantum - about 156 ms per tick on
+  // Windows, plus accumulating drift elsewhere - so the real tick rate would not be the specified
+  // 150 ms, and clients could not predict when snapshots arrive.) If the event loop ever stalls for
+  // more than a couple of ticks we re-anchor instead of firing a burst of catch-up ticks.
+  _scheduleTick() {
+    const now = performance.now();
+    let due = this.tickStart + (this.tickCount + 1) * CONFIG.TICK_MS;
+    if (due < now - 2 * CONFIG.TICK_MS) {
+      this.tickStart = now - this.tickCount * CONFIG.TICK_MS;
+      due = now + CONFIG.TICK_MS;
+    }
+    this.tickTimer = setTimeout(() => {
+      this.tickCount++;
+      this._tick();
+      if (this.match) this._scheduleTick();
+    }, Math.max(0, due - now));
   }
 
   _tick() {
@@ -284,7 +305,7 @@ export class Lobby {
   }
 
   _endMatch() {
-    clearInterval(this.tickTimer);
+    clearTimeout(this.tickTimer);
     clearTimeout(this.startTimer);
     this.tickTimer = null;
     const match = this.match;
@@ -313,7 +334,7 @@ export class Lobby {
   }
 
   dispose() {
-    clearInterval(this.tickTimer);
+    clearTimeout(this.tickTimer);
     clearTimeout(this.startTimer);
     clearTimeout(this.countdownTimer);
     for (const p of this.players.values()) if (p.dcTimer) clearTimeout(p.dcTimer);

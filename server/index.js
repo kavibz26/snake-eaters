@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION, DIRECTION_NAMES } from './protocol.js';
 const DEFAULT_ORIGINS = ['https://kavibz26.github.io'];
 const DEFAULT_MAX_CONNS_PER_IP = 20;
 const HEARTBEAT_MS = 20000;
+const SYNC_COOLDOWN_MS = 500;
 
 // Browsers always send an Origin on WebSocket handshakes, so we can refuse
 // pages we don't know. Non-browser clients (tests, curl) send none and pass.
@@ -153,8 +154,12 @@ export function createServer({
         return;
       }
       case 'sync': {
-        // Client noticed a gap in its delta stream: send it the full state once.
+        // Client noticed a gap in its delta stream: send it the full state once. A full snapshot is
+        // the most expensive thing a client can ask for, so it is limited to one per SYNC_COOLDOWN_MS.
         if (!ctx || !ctx.lobby.match || ctx.lobby.state !== 'running') return;
+        const now = Date.now();
+        if (now - (ws.lastSync || 0) < SYNC_COOLDOWN_MS) return;
+        ws.lastSync = now;
         send(ws, ctx.lobby.match.snapshot({ full: true }));
         return;
       }
