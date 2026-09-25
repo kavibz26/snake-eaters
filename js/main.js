@@ -92,7 +92,7 @@ function triggerBoost() {
   game.activateBoost();
 }
 
-const input = new InputManager({ canvas, dpad });
+const input = new InputManager({ canvas, dpad, swipeArea: document.querySelector('.arena-wrap') });
 input.onDirection = (dir) => game.setPlayerDirection(dir);
 input.onPauseToggle = togglePause;
 input.onBoost = triggerBoost;

@@ -31,15 +31,33 @@ const KEY_DIRECTIONS_BY_KEY = {
 
 const SWIPE_MIN_DISTANCE = 24;
 
+function swipeDirection(dx, dy) {
+  if (Math.abs(dx) < SWIPE_MIN_DISTANCE && Math.abs(dy) < SWIPE_MIN_DISTANCE) return null;
+  return Math.abs(dx) > Math.abs(dy)
+    ? (dx > 0 ? CONFIG.DIRECTIONS.right : CONFIG.DIRECTIONS.left)
+    : (dy > 0 ? CONFIG.DIRECTIONS.down : CONFIG.DIRECTIONS.up);
+}
+
+function findTouch(list, id) {
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].identifier === id) return list[i];
+  }
+  return null;
+}
+
 export class InputManager {
-  constructor({ canvas, dpad }) {
+  // swipeArea: the element that listens for swipes (defaults to the canvas).
+  // Passing the canvas's wrapper makes the whole board region - including
+  // the letterbox around the canvas - a valid swipe surface.
+  constructor({ canvas, dpad, swipeArea }) {
     this.canvas = canvas;
+    this.swipeArea = swipeArea || canvas;
     this.dpad = dpad;
     this.onDirection = null;
     this.onPauseToggle = null;
     this.onRestart = null;
     this.onBoost = null;
-    this.touchStart = null;
+    this.swipe = null; // { id, x, y } for the one finger currently driving a swipe
 
     this._handleKeydown = this._handleKeydown.bind(this);
     this._handleTouchStart = this._handleTouchStart.bind(this);
@@ -47,13 +65,15 @@ export class InputManager {
     this._handleTouchEnd = this._handleTouchEnd.bind(this);
 
     window.addEventListener('keydown', this._handleKeydown);
-    if (canvas) {
-      canvas.addEventListener('touchstart', this._handleTouchStart, { passive: true });
+    const area = this.swipeArea;
+    if (area) {
+      area.addEventListener('touchstart', this._handleTouchStart, { passive: true });
       // Not passive: a swipe-to-turn gesture must never scroll/bounce the
-      // page - CSS touch-action:none on the canvas already covers modern
+      // page - CSS touch-action:none on the board already covers modern
       // browsers, this is the JS-level belt-and-suspenders backup.
-      canvas.addEventListener('touchmove', this._handleTouchMove, { passive: false });
-      canvas.addEventListener('touchend', this._handleTouchEnd, { passive: true });
+      area.addEventListener('touchmove', this._handleTouchMove, { passive: false });
+      area.addEventListener('touchend', this._handleTouchEnd, { passive: true });
+      area.addEventListener('touchcancel', this._handleTouchCancel = () => { this.swipe = null; }, { passive: true });
     }
     if (dpad) {
       dpad.querySelectorAll('[data-dir]').forEach((btn) => {
@@ -92,34 +112,51 @@ export class InputManager {
     }
   }
 
+  // Only the first finger down drives a swipe; extra fingers are ignored so
+  // a second touch can never hijack or reset the gesture in progress.
   _handleTouchStart(e) {
+    if (this.swipe) return;
     const t = e.changedTouches[0];
-    this.touchStart = { x: t.clientX, y: t.clientY };
+    this.swipe = { id: t.identifier, x: t.clientX, y: t.clientY };
   }
 
+  // Fires the turn the moment the finger travels far enough, instead of
+  // waiting for release, then re-anchors at the current point - so one
+  // continuous gesture can chain turns (right, then down) without lifting.
+  // The game itself still rejects reversals (see Snake.queueDirection).
   _handleTouchMove(e) {
-    if (this.touchStart) e.preventDefault();
+    const s = this.swipe;
+    if (!s) return;
+    e.preventDefault();
+    const t = findTouch(e.changedTouches, s.id);
+    if (!t) return;
+    const dir = swipeDirection(t.clientX - s.x, t.clientY - s.y);
+    if (!dir) return;
+    s.x = t.clientX;
+    s.y = t.clientY;
+    if (this.onDirection) this.onDirection(dir);
   }
 
+  // Fallback for browsers that coalesce/skip the final touchmove: any
+  // travel left unspent when the finger lifts still counts as a swipe.
   _handleTouchEnd(e) {
-    if (!this.touchStart) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - this.touchStart.x;
-    const dy = t.clientY - this.touchStart.y;
-    this.touchStart = null;
-    if (Math.abs(dx) < SWIPE_MIN_DISTANCE && Math.abs(dy) < SWIPE_MIN_DISTANCE) return;
-    const dir = Math.abs(dx) > Math.abs(dy)
-      ? (dx > 0 ? CONFIG.DIRECTIONS.right : CONFIG.DIRECTIONS.left)
-      : (dy > 0 ? CONFIG.DIRECTIONS.down : CONFIG.DIRECTIONS.up);
-    if (this.onDirection) this.onDirection(dir);
+    const s = this.swipe;
+    if (!s) return;
+    const t = findTouch(e.changedTouches, s.id);
+    if (!t) return;
+    this.swipe = null;
+    const dir = swipeDirection(t.clientX - s.x, t.clientY - s.y);
+    if (dir && this.onDirection) this.onDirection(dir);
   }
 
   destroy() {
     window.removeEventListener('keydown', this._handleKeydown);
-    if (this.canvas) {
-      this.canvas.removeEventListener('touchstart', this._handleTouchStart);
-      this.canvas.removeEventListener('touchmove', this._handleTouchMove);
-      this.canvas.removeEventListener('touchend', this._handleTouchEnd);
+    const area = this.swipeArea;
+    if (area) {
+      area.removeEventListener('touchstart', this._handleTouchStart);
+      area.removeEventListener('touchmove', this._handleTouchMove);
+      area.removeEventListener('touchend', this._handleTouchEnd);
+      area.removeEventListener('touchcancel', this._handleTouchCancel);
     }
   }
 }

@@ -472,6 +472,7 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 0;
+  touch-action: none; /* the whole board region is the swipe surface */
 }
 
 #gameCanvas {
