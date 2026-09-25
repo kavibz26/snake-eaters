@@ -1,10 +1,8 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { RoomManager, send } from './rooms.js';
-import {
-  PROTOCOL_VERSION, DIRECTION_NAMES, normalizeCode, isValidCodeFormat,
-} from './protocol.js';
+import { LobbyManager, send } from './lobbies.js';
+import { PROTOCOL_VERSION, DIRECTION_NAMES } from './protocol.js';
 
 const DEFAULT_ORIGINS = ['https://kavibz26.github.io'];
 const DEFAULT_MAX_CONNS_PER_IP = 20;
@@ -18,9 +16,12 @@ function isOriginAllowed(origin, allowed) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) && allowed.includes('*localhost');
 }
 
-export function createServer({ port = 8787, allowedOrigins, trustProxy = false, maxRooms, maxConnsPerIp = DEFAULT_MAX_CONNS_PER_IP } = {}) {
+export function createServer({
+  port = 8787, allowedOrigins, trustProxy = false, lobbyCount, maxPlayers, startDelayMs, fullStartDelayMs,
+  maxConnsPerIp = DEFAULT_MAX_CONNS_PER_IP,
+} = {}) {
   const origins = allowedOrigins || DEFAULT_ORIGINS;
-  const manager = new RoomManager({ maxRooms });
+  const manager = new LobbyManager({ lobbyCount, maxPlayers, startDelayMs, fullStartDelayMs });
   const connsByIp = new Map();
 
   const httpServer = http.createServer((req, res) => {
@@ -57,15 +58,16 @@ export function createServer({ port = 8787, allowedOrigins, trustProxy = false, 
 
   wss.on('connection', (ws) => {
     ws.isAlive = true;
-    ws.ctx = null; // { room, player }
+    ws.ctx = null; // { lobby, player } while inside a lobby
     ws.bucket = { tokens: 40, last: Date.now(), dropped: 0 };
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', (data) => onMessage(ws, data));
     ws.on('close', () => {
       const n = (connsByIp.get(ws.ip) || 1) - 1;
       if (n <= 0) connsByIp.delete(ws.ip); else connsByIp.set(ws.ip, n);
+      manager.unsubscribe(ws);
       const ctx = ws.ctx;
-      if (ctx && ctx.player.ws === ws) ctx.room.handleDisconnect(ctx.player);
+      if (ctx && ctx.player.ws === ws) ctx.lobby.handleDisconnect(ctx.player);
     });
     ws.on('error', () => {});
   });
@@ -89,6 +91,12 @@ export function createServer({ port = 8787, allowedOrigins, trustProxy = false, 
     send(ws, { t: 'error', code, message });
   }
 
+  function versionOk(ws, msg) {
+    if (msg.v === PROTOCOL_VERSION) return true;
+    send(ws, { t: 'error', code: 'bad_version', sv: PROTOCOL_VERSION, message: 'Your game is out of date. Refresh the page and try again.' });
+    return false;
+  }
+
   function onMessage(ws, data) {
     if (!allow(ws)) return;
     let msg;
@@ -101,37 +109,60 @@ export function createServer({ port = 8787, allowedOrigins, trustProxy = false, 
     const ctx = ws.ctx;
 
     switch (msg.t) {
-      case 'create':
+      // --- lobby browser: subscribe once, then the server pushes changes ('lu') ------------
+      case 'lobbies':
+        if (ctx) return fail(ws, 'bad_state', 'Leave your lobby first.');
+        if (!versionOk(ws, msg)) return;
+        manager.subscribe(ws);
+        return;
+      case 'unbrowse':
+        manager.unsubscribe(ws);
+        return;
+
       case 'join':
       case 'rejoin':
-        if (ctx) return fail(ws, 'bad_state', 'You are already in a room.');
-        if (msg.v !== PROTOCOL_VERSION) {
-          return fail(ws, 'bad_version', 'Your game is out of date. Refresh the page and try again.');
-        }
+        if (ctx) return fail(ws, 'bad_state', 'You are already in a lobby.');
+        if (!versionOk(ws, msg)) return;
         return handleEntry(ws, msg);
 
-      case 'start': {
+      // Sequenced gameplay input. The server only ever queues an *intent* on the
+      // sender's own snake; seq lets the client match snapshot acks to its
+      // predicted inputs. Everything is validated - nothing here can move a
+      // snake, score, or touch another player's state.
+      case 'input': {
+        if (!ctx || !ctx.lobby.match || ctx.lobby.phase !== 'playing') return;
+        const seq = msg.seq;
+        if (!Number.isSafeInteger(seq) || seq <= 0) return;
+        const input = {};
+        if (msg.dir !== undefined) {
+          if (!DIRECTION_NAMES.has(msg.dir)) return;
+          input.dir = msg.dir;
+        }
+        if (msg.boost !== undefined) {
+          if (msg.boost !== true) return;
+          input.boost = true;
+        }
+        if (input.dir === undefined && input.boost === undefined) return;
+        ctx.lobby.match.applyInput(ctx.player.id, seq, input);
+        return;
+      }
+      case 'chat': {
         if (!ctx) return;
-        const err = ctx.room.start(ctx.player.id);
-        if (err) fail(ws, err.code, err.message);
+        const err = ctx.lobby.chat(ctx.player, msg.m);
+        if (err) send(ws, { t: 'chat_error', code: err.code, message: err.message });
         return;
       }
-      case 'dir': {
-        if (!ctx || ctx.room.state !== 'playing' || !ctx.room.match) return;
-        if (!DIRECTION_NAMES.has(msg.d)) return;
-        ctx.room.match.setDirection(ctx.player.id, msg.d);
-        return;
-      }
-      case 'boost': {
-        if (!ctx || ctx.room.state !== 'playing' || !ctx.room.match) return;
-        ctx.room.match.activateBoost(ctx.player.id);
+      case 'sync': {
+        // Client noticed a gap in its delta stream: send it the full state once.
+        if (!ctx || !ctx.lobby.match || ctx.lobby.state !== 'running') return;
+        send(ws, ctx.lobby.match.snapshot({ full: true }));
         return;
       }
       case 'leave': {
         if (!ctx) return;
-        const { room, player } = ctx;
+        const { lobby, player } = ctx;
         ws.ctx = null;
-        room.removePlayer(player.id, 'leave');
+        lobby.removePlayer(player.id);
         send(ws, { t: 'left' });
         return;
       }
@@ -143,33 +174,24 @@ export function createServer({ port = 8787, allowedOrigins, trustProxy = false, 
   }
 
   function handleEntry(ws, msg) {
-    if (msg.t === 'create') {
-      const res = manager.createRoom(ws, msg.name, msg.skin);
-      if (res.error) return fail(ws, res.error.code, res.error.message);
-      ws.ctx = { room: res.room, player: res.player };
-      send(ws, res.room.joinedMessage(res.player));
-      return;
-    }
-
-    const code = normalizeCode(msg.code);
     if (msg.t === 'join') {
-      if (!isValidCodeFormat(code)) return fail(ws, 'invalid_room', 'That is not a valid room code.');
-      const res = manager.joinRoom(ws, code, msg.name, msg.skin);
+      const res = manager.join(ws, msg.lobby, msg.name, msg.skin);
       if (res.error) return fail(ws, res.error.code, res.error.message);
-      ws.ctx = { room: res.room, player: res.player };
-      send(ws, res.room.joinedMessage(res.player));
-      res.room.broadcastLobby();
+      ws.ctx = { lobby: res.lobby, player: res.player };
+      send(ws, res.lobby.joinedMessage(res.player)); // the joiner hears 'joined' first...
+      res.lobby._changed(); // ...then everyone (incl. lobby-browser viewers) hears the new roster
       return;
     }
 
-    // rejoin: id + secret token must both match the seat we kept for them.
-    const room = manager.rooms.get(code);
-    const player = room && room.players.get(String(msg.id));
+    // rejoin: lobby id + player id + secret token must all match the slot we kept for them.
+    const lobby = typeof msg.lobby === 'string' ? manager.lobbies.get(msg.lobby) : undefined;
+    const player = lobby && lobby.players.get(String(msg.id));
     if (!player || typeof msg.token !== 'string' || player.token !== msg.token) {
-      return fail(ws, 'invalid_session', 'Your seat in that room has expired.');
+      return fail(ws, 'invalid_session', 'Your slot in that lobby has expired.');
     }
-    ws.ctx = { room, player };
-    room.reconnect(player, ws);
+    manager.unsubscribe(ws);
+    ws.ctx = { lobby, player };
+    lobby.reconnect(player, ws);
   }
 
   const heartbeat = setInterval(() => {

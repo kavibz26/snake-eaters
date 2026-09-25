@@ -10,7 +10,7 @@ const screens = {
   start: document.getElementById('startScreen'),
   game: document.getElementById('gameScreen'),
   gameover: document.getElementById('gameOverScreen'),
-  mpMenu: document.getElementById('mpMenuScreen'),
+  browser: document.getElementById('lobbyBrowserScreen'),
   lobby: document.getElementById('lobbyScreen'),
   mpResults: document.getElementById('mpResultsScreen'),
 };

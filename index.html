@@ -81,6 +81,8 @@
       <div class="hud-stat"><span class="hud-label">Snakes</span><span id="hudRemaining" class="hud-value">0</span></div>
       <div class="you-badge"><span class="you-dot"></span>You are the green snake</div>
       <div class="hud-status" id="hudStatus">Playing</div>
+      <span class="mp-conn hidden" id="hudConn" role="status"><span class="mp-conn-dot"></span><span class="mp-conn-text"></span></span>
+      <button id="chatToggleBtn" class="btn btn-ghost chat-toggle hidden" aria-label="Open chat"><span aria-hidden="true">💬</span><span id="chatBadge" class="chat-badge hidden">0</span></button>
       <button id="pauseBtn" class="btn btn-ghost" aria-label="Pause">⏸</button>
     </header>
 
@@ -89,6 +91,7 @@
       <div id="pausedOverlay" class="overlay hidden">
         <div class="overlay-text">Paused</div>
       </div>
+      <ol id="mpBoard" class="mp-board hidden" aria-label="Live leaderboard"></ol>
       <div id="mpBanner" class="mp-banner hidden" role="status" aria-live="polite"></div>
       <div id="mpLeaveOverlay" class="overlay hidden">
         <div class="overlay-card">
@@ -104,6 +107,15 @@
 
     <div class="action-row">
       <button id="boostBtn" class="btn btn-boost">⚡ Speed Boost</button>
+    </div>
+
+    <div id="chatDrawer" class="chat-drawer hidden" role="dialog" aria-label="Lobby chat">
+      <div class="chat-head"><strong>Chat</strong><button id="chatCloseBtn" class="btn-link" type="button" aria-label="Close chat">Close</button></div>
+      <div id="gameChatLog" class="chat-log" aria-live="polite"></div>
+      <form id="gameChatForm" class="chat-form" autocomplete="off">
+        <input id="gameChatInput" class="text-input" type="text" maxlength="140" placeholder="Message the lobby..." autocomplete="off" aria-label="Chat message">
+        <button class="btn btn-primary chat-send" type="submit">Send</button>
+      </form>
     </div>
 
     <div id="dpad" class="dpad">
@@ -126,10 +138,12 @@
     </div>
   </section>
 
-  <section id="mpMenuScreen" class="screen hidden">
+  <!-- Multiplayer: lobby browser -> waiting room -> match -> results -->
+  <section id="lobbyBrowserScreen" class="screen hidden">
     <div class="panel mp-panel">
       <h2 class="title title-sm">Multiplayer</h2>
-      <p id="mpMenuStatus" class="mp-status" role="status" aria-live="polite"></p>
+      <span class="mp-conn hidden" id="browserConn" role="status"><span class="mp-conn-dot"></span><span class="mp-conn-text"></span></span>
+      <p id="browserStatus" class="mp-status" role="status" aria-live="polite"></p>
       <label class="mp-field" for="mpNick">
         <span class="section-label">Your nickname</span>
         <input id="mpNick" class="text-input" type="text" maxlength="14" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Nickname">
@@ -138,44 +152,41 @@
         <canvas id="mpSkinPreview" class="mp-skin-preview" width="84" height="60"></canvas>
         <span>Playing as <strong id="mpSkinName"></strong><br><small>Change your snake on the main menu</small></span>
       </div>
-      <div class="mp-actions">
-        <button id="mpCreateBtn" class="btn btn-primary">Create Room</button>
-        <button id="mpJoinToggleBtn" class="btn btn-secondary">Join Room</button>
-      </div>
-      <form id="mpJoinForm" class="mp-join hidden" autocomplete="off">
-        <input id="mpCode" class="text-input text-input--code" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code">
-        <button id="mpJoinBtn" type="submit" class="btn btn-primary">Join</button>
-      </form>
+      <h3 class="section-label lobby-heading">Choose a lobby</h3>
+      <ul id="lobbyList" class="lobby-list" aria-label="Public lobbies"></ul>
+      <button id="browserRetryBtn" class="btn btn-secondary hidden">Try again</button>
       <button id="mpBackBtn" class="btn btn-link">&larr; Back</button>
     </div>
   </section>
 
   <section id="lobbyScreen" class="screen hidden">
     <div class="panel mp-panel">
-      <h2 class="title title-sm">Room</h2>
-      <div class="room-code-box">
-        <span class="section-label">Room code</span>
-        <div id="roomCode" class="room-code">-----</div>
-        <button id="copyCodeBtn" class="btn btn-secondary btn-sm">Copy Code</button>
-      </div>
-      <p id="lobbyStatus" class="mp-status" role="status" aria-live="polite">Waiting for players...</p>
+      <h2 id="lobbyTitle" class="title title-sm">Lobby</h2>
+      <span class="mp-conn hidden" id="lobbyConn" role="status"><span class="mp-conn-dot"></span><span class="mp-conn-text"></span></span>
+      <div class="lobby-count"><span id="lobbyCount" class="lobby-count-num">0/6</span><span class="lobby-count-label">players</span></div>
+      <p id="lobbyStatus" class="mp-status" role="status" aria-live="polite">Waiting for more players...</p>
       <ul id="playerList" class="player-list"></ul>
-      <div class="mp-actions">
-        <button id="startMatchBtn" class="btn btn-primary hidden">Start Match</button>
+      <div class="chat-box">
+        <div id="lobbyChatLog" class="chat-log" aria-live="polite"></div>
+        <form id="lobbyChatForm" class="chat-form" autocomplete="off">
+          <input id="lobbyChatInput" class="text-input" type="text" maxlength="140" placeholder="Chat with this lobby..." autocomplete="off" aria-label="Chat message">
+          <button class="btn btn-secondary chat-send" type="submit">Send</button>
+        </form>
       </div>
-      <button id="leaveRoomBtn" class="btn btn-link">Leave Room</button>
+      <button id="leaveRoomBtn" class="btn btn-link">Leave Lobby</button>
     </div>
   </section>
 
   <section id="mpResultsScreen" class="screen hidden">
     <div class="panel mp-panel">
       <h2 id="mpResultTitle" class="title title-sm">Match Over</h2>
+      <span class="mp-conn hidden" id="resultsConn" role="status"><span class="mp-conn-dot"></span><span class="mp-conn-text"></span></span>
       <p id="mpResultSub" class="mp-status"></p>
       <ol id="standings" class="player-list"></ol>
+      <p id="mpResultHint" class="mp-status">Pick a lobby to play again.</p>
       <div class="mp-actions">
-        <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobby</button>
+        <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobbies</button>
       </div>
-      <button id="resultsLeaveBtn" class="btn btn-link">Leave Room</button>
     </div>
   </section>
 

@@ -8,6 +8,7 @@ import { FoodManager } from '../js/food.js';
 import { inBounds, cellsEqual, buildOccupancyMap } from '../js/collision.js';
 import { getSkinById } from '../js/skins.js';
 import { MATCH_MAX_TICKS } from './protocol.js';
+import { dirIndex, encodeBodyDelta } from '../js/net/snapcodec.js';
 
 export class MatchSim {
   // entries: [{ id, name, skinId }]
@@ -24,9 +25,25 @@ export class MatchSim {
     this._spawnSnakes(entries);
     for (const s of this.snakes) this._seedSpawnFood(s);
     this.food.replenish((x, y) => this._isCellBlocked(x, y), this.food.target);
+    this._commitBaseline();
   }
 
   // --- intents (the only thing clients can influence) ----------------------
+
+  // Sequenced input from a client. `seq` only ever increases per player; the
+  // highest one processed is echoed back in every snapshot (`q`) so the client
+  // knows which of its predicted inputs the server has now accounted for.
+  // Receipt is acknowledged even when the input can't take effect (dead,
+  // frozen, illegal reversal): the authoritative state decides what happens.
+  applyInput(id, seq, { dir, boost } = {}) {
+    const snake = this.byId.get(id);
+    if (!snake || !Number.isSafeInteger(seq) || seq <= snake.lastSeq) return false;
+    snake.lastSeq = seq;
+    if (!snake.alive || snake.frozen) return true;
+    if (dir && CONFIG.DIRECTIONS[dir]) snake.queueDirection(CONFIG.DIRECTIONS[dir]);
+    if (boost === true) snake.activateBoost(CONFIG.BOOST_DURATION_TICKS);
+    return true;
+  }
 
   setDirection(id, dirName) {
     const snake = this.byId.get(id);
@@ -307,6 +324,8 @@ export class MatchSim {
       snake.name = entry.name;
       snake.skinId = entry.skinId;
       snake.frozen = false;
+      snake.lastSeq = 0;
+      snake.joinIndex = i;
       this.snakes.push(snake);
       this.byId.set(entry.id, snake);
     });
@@ -330,30 +349,101 @@ export class MatchSim {
 
   // --- output -----------------------------------------------------------------
 
-  snapshot() {
-    const food = [];
-    for (const f of this.food.all()) food.push(f.x, f.y);
-    return {
+  // Deterministic live ranking: higher score first; ties go to a living snake,
+  // then more kills, then join order. The server owns this order - clients
+  // just display it (snapshot `lb` holds indices into `snakes`).
+  leaderboardOrder() {
+    return this.snakes
+      .map((s, idx) => ({ s, idx }))
+      .sort((a, b) => (
+        (b.s.score - a.s.score)
+        || ((b.s.alive ? 1 : 0) - (a.s.alive ? 1 : 0))
+        || (b.s.eliminations - a.s.eliminations)
+        || (a.s.joinIndex - b.s.joinIndex)
+      ))
+      .map((r) => r.idx);
+  }
+
+  _flatBody(s) {
+    const cells = [];
+    if (s.alive) for (const c of s.body) cells.push(c.x, c.y);
+    return cells;
+  }
+
+  _flatFood() {
+    const out = [];
+    for (const f of this.food.all()) out.push(f.x, f.y);
+    return out;
+  }
+
+  // Remembers what the last broadcast contained; the next delta snapshot is
+  // expressed relative to it.
+  _commitBaseline() {
+    this.prevBodies = new Map(this.snakes.map((s) => [s.playerId, this._flatBody(s)]));
+    this.prevFood = new Set([...this.food.all()].map((f) => cellKey(f.x, f.y)));
+  }
+
+  // full = true: complete state (match start, rejoin, resync request) - never
+  // touches the delta baseline, so it can be sent to one player at any time.
+  // Otherwise a compact delta against the previous broadcast tick.
+  snapshot({ full = false } = {}) {
+    const snap = {
       t: 'snap',
       tick: this.tickCount,
       snakes: this.snakes.map((s) => {
-        const cells = [];
-        if (s.alive) for (const c of s.body) cells.push(c.x, c.y);
-        return {
+        const cells = this._flatBody(s);
+        const out = {
           id: s.playerId,
           a: s.alive ? 1 : 0,
           d: [s.direction.x, s.direction.y],
-          c: cells,
           sc: s.score,
           k: s.eliminations,
           ate: s.justAte ? 1 : 0,
           b: [s.boostTicksLeft, s.boostCooldownLeft],
           fz: s.frozen ? 1 : 0,
+          q: s.lastSeq, // last input sequence number the server has processed for this player
         };
+        if (s.alive) {
+          // State the client needs to keep predicting this snake exactly like
+          // the server would (turns already accepted but not yet moved on).
+          const pd = dirIndex(s.pendingDirection);
+          const ib = s.inputBuffer.length ? dirIndex(s.inputBuffer[0]) : -1;
+          if (pd !== dirIndex(s.direction) || ib >= 0) out.p = [pd, ib];
+          if (s.growPending > 0) out.g = s.growPending;
+
+          const delta = full ? null : encodeBodyDelta(this.prevBodies.get(s.playerId) || [], cells);
+          if (delta) {
+            out.n = delta.n;
+            if (delta.h.length) out.h = delta.h;
+          } else {
+            out.c = cells;
+          }
+        }
+        return out;
       }),
-      f: food,
-      ev: this.events,
+      lb: this.leaderboardOrder(),
+      ev: full ? [] : this.events,
     };
+
+    if (full) {
+      snap.full = 1;
+      snap.f = this._flatFood();
+    } else {
+      const now = new Map([...this.food.all()].map((f) => [cellKey(f.x, f.y), f]));
+      const added = [];
+      const removed = [];
+      for (const [k, f] of now) if (!this.prevFood.has(k)) added.push(f.x, f.y);
+      for (const k of this.prevFood) {
+        if (!now.has(k)) {
+          const [x, y] = k.split(',');
+          removed.push(Number(x), Number(y));
+        }
+      }
+      if (added.length) snap.fa = added;
+      if (removed.length) snap.fr = removed;
+      this._commitBaseline();
+    }
+    return snap;
   }
 
   results() {
@@ -366,13 +456,14 @@ export class MatchSim {
       kills: s.eliminations,
       alive: s.alive,
       diedTick: s.alive ? Infinity : (s.diedTick ?? 0),
+      joinIndex: s.joinIndex,
     }));
     rows.sort((a, b) => {
       if (a.id === this.winnerId) return -1;
       if (b.id === this.winnerId) return 1;
       if (a.alive !== b.alive) return a.alive ? -1 : 1;
       if (b.diedTick !== a.diedTick) return b.diedTick - a.diedTick;
-      return b.score - a.score;
+      return (b.score - a.score) || (a.joinIndex - b.joinIndex);
     });
     return rows.map((r, i) => ({
       rank: i + 1,

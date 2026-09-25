@@ -253,7 +253,7 @@ test('forfeit removes a snake and can end the match', () => {
 
 test('snapshot is compact, JSON-safe and never leaks server internals', () => {
   const sim = makeSim(['a', 'b']);
-  const snap = sim.snapshot();
+  const snap = sim.snapshot({ full: true });
   const json = JSON.stringify(snap);
   assert.equal(snap.t, 'snap');
   assert.equal(snap.snakes.length, 2);

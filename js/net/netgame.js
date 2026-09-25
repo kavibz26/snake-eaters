@@ -1,21 +1,37 @@
 // Client-side view of an authoritative multiplayer match. It extends Game only
 // to reuse the existing renderers (snake skins, eyes, background, food,
-// particles, HUD) so multiplayer looks exactly like single-player. It runs NO
-// simulation: every position, size, kill and death comes from server
-// snapshots, and the only thing it sends back is direction/boost intent.
+// particles, HUD) so multiplayer looks exactly like single-player.
+//
+// Two rendering paths, on purpose:
+//   * REMOTE snakes: interpolated between server snapshots (a slight, smooth delay).
+//   * LOCAL snake:   drawn from LocalPredictor (js/net/predict.js) so turns and
+//                    boost respond instantly. It is visual prediction only - every
+//                    position, size, kill, death and score still comes from the
+//                    server, and the prediction is rebuilt from each snapshot.
 import { Game } from '../game.js';
-import { CONFIG, cellKey } from '../config.js';
+import { CONFIG } from '../config.js';
 import { getSkinById } from '../skins.js';
 import { FoodManager } from '../food.js';
 import { roundedSquare } from '../snakeRender.js';
+import { LocalPredictor, predictorState } from './predict.js';
+import { SnapTracker, DIR_NAMES, DIR_VECS, dirIndex } from './snapcodec.js';
 
 const EMPTY_BODY = [];
+const OFFSET_TAU_MS = 65; // how fast a visual correction fades out
+const SNAP_THRESHOLD_CELLS = 3; // bigger disagreements are real desyncs: show the truth immediately
+const SYNC_COOLDOWN_MS = 750;
 
 export class NetGame extends Game {
   constructor(canvas, hud) {
     super(canvas, hud);
     this.net = null;
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS); // render-only mirror of the server's food
+    this.tracker = new SnapTracker(); // authoritative state rebuilt from delta snapshots
+    this.predictor = new LocalPredictor(CONFIG.TICK_MS);
+    this.predictionEnabled = true; // switchable so the latency fix can be A/B measured
+    this.seq = 0; // monotonically increasing input sequence number
+    this.offset = null; // decaying visual correction for the local snake
+    this.offsetT = 0;
     this.views = new Map(); // player id -> render view of that snake
     this.myId = null;
     this.state = 'idle'; // idle | countdown | playing | spectating | over
@@ -24,13 +40,17 @@ export class NetGame extends Game {
     this.connectionText = null; // e.g. "Reconnecting..." (set by the UI layer)
     this.onBanner = null; // (text | null) => void, drives the overlay in the arena
     this.onPauseRequest = null; // pause button => "leave match?" prompt
+    this.onBoard = null; // (rows) => void, live leaderboard (order computed by the server)
     this._lastBanner = undefined;
+    this._lastSync = 0;
+    this._alive = 0;
     this._netLoop = this._netLoop.bind(this);
     this.snakes = [];
   }
 
   attach(net) {
     this.net = net;
+    net.on('latency', ({ sample }) => this.predictor.noteRtt(sample));
   }
 
   get me() {
@@ -67,12 +87,19 @@ export class NetGame extends Game {
     }
     this.snakes = [...this.views.values()];
     this.particles = [];
-    this.food.items = new Map();
+    if (!msg.resumed) this.seq = 0; // new match: the server restarts acks at 0
+    this.tracker.reset();
+    this.food.items = this.tracker.food;
+    this.predictor.reset();
+    this.offset = null;
     this.startsAt = performance.now() + (msg.startsInMs || 0);
     this.state = msg.startsInMs > 0 ? 'countdown' : 'playing';
-    this._applyState(msg.snap, true);
+    this.tracker.apply(msg.snap);
+    this._applyViews(msg.snap, performance.now());
+    this._alive = msg.snap.snakes.filter((s) => s.a === 1).length;
     if (this.state === 'playing' && this.me && !this.me.alive) this.state = 'spectating';
     this._updateHud();
+    this._publishBoard(msg.snap);
     this._lastBanner = undefined;
     this.start();
   }
@@ -92,6 +119,8 @@ export class NetGame extends Game {
     this.views = new Map();
     this.snakes = [];
     this.connectionText = null;
+    this.predictor.reset();
+    this.tracker.reset();
     this._setBanner(null);
   }
 
@@ -101,11 +130,17 @@ export class NetGame extends Game {
     this.active = false;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.rafId = null;
+    this.predictor.reset();
     this._setBanner(null);
   }
 
   setConnectionText(text) {
     this.connectionText = text;
+  }
+
+  // The socket dropped: anything still in flight never reached the server.
+  connectionLost() {
+    this.predictor.dropInFlightInputs();
   }
 
   _netLoop(ts) {
@@ -118,28 +153,41 @@ export class NetGame extends Game {
     if (this.active) this.rafId = requestAnimationFrame(this._netLoop);
   }
 
-  // --- input (intent only) ------------------------------------------------------------
+  // --- input (intent only) -----------------------------------------------------------------
 
   _canAct() {
+    if (this.state === 'countdown' && performance.now() >= this.startsAt) this.state = 'playing';
     const me = this.me;
     return this.state === 'playing' && me && me.alive && this.net && this.net.status === 'connected';
   }
 
+  // One entry point for keyboard, D-pad and swipe (they all arrive here via
+  // InputManager -> onDirection). The intent goes out immediately, and the
+  // local snake reacts in the same call.
   setPlayerDirection(dir) {
     if (!this._canAct()) return;
-    for (const [name, vec] of Object.entries(CONFIG.DIRECTIONS)) {
-      if (vec.x === dir.x && vec.y === dir.y) {
-        this.net.sendDir(name);
-        return;
-      }
+    const idx = dirIndex(dir);
+    if (idx < 0) return;
+    const now = performance.now();
+    if (this._predicting()) {
+      this.predictor.displayCells(now); // bring the prediction up to "now" before consulting it
+      if (!this._directionWouldChange(dir)) return; // no-op turn (held key / repeated swipe)
     }
+    const seq = ++this.seq;
+    this.net.sendInput({ seq, dir: DIR_NAMES[idx] });
+    this._predictInput('dir', DIR_VECS[idx], seq, now);
   }
 
   activateBoost() {
     if (!this._canAct()) return false;
     const me = this.me;
-    if (me.boostTicksLeft > 0 || me.boostCooldownLeft > 0) return false;
-    this.net.sendBoost();
+    const predicting = this._predicting();
+    if (predicting) this.predictor.displayCells(performance.now());
+    if (predicting ? !this.predictor.canBoost() : (me.boostTicksLeft > 0 || me.boostCooldownLeft > 0)) return false;
+    const seq = ++this.seq;
+    this.net.sendInput({ seq, boost: true });
+    this._predictInput('boost', null, seq, performance.now());
+    this._updateHud();
     return true;
   }
 
@@ -148,18 +196,48 @@ export class NetGame extends Game {
     if (this.onPauseRequest) this.onPauseRequest();
   }
 
-  // --- applying authoritative snapshots ----------------------------------------------------
-
-  applySnapshot(snap) {
-    if (!this.views.size) return;
-    if (this.state === 'countdown' && snap.tick >= 1) this.state = 'playing';
-    this._applyState(snap, false);
-    this._handleEvents(snap.ev || []);
-    this._updateHud();
+  _predicting() {
+    return this.predictionEnabled && this.predictor.active && this.predictor.phi !== null;
   }
 
-  _applyState(snap, immediate) {
-    const now = performance.now();
+  // Same rule Snake.queueDirection uses: a turn equal to, or opposite of, the most
+  // recently queued heading changes nothing, so don't spend a message on it.
+  _directionWouldChange(dir) {
+    const s = this.predictor.sim;
+    if (!s) return true;
+    const recent = s.inputBuffer.length ? s.inputBuffer[s.inputBuffer.length - 1] : s.pendingDirection;
+    if (dir.x === recent.x && dir.y === recent.y) return false;
+    if (dir.x === -recent.x && dir.y === -recent.y) return false;
+    return true;
+  }
+
+  _predictInput(kind, dir, seq, now) {
+    if (!this._predicting()) return;
+    const before = this._localDisplay(now);
+    this.predictor.addInput(kind, dir, seq, now);
+    this._reconcile(before, now);
+  }
+
+  // --- applying authoritative snapshots ------------------------------------------------------
+
+  applySnapshot(snap, recvAt) {
+    if (!this.views.size) return;
+    const now = typeof recvAt === 'number' ? recvAt : performance.now();
+    if (this.state === 'countdown' && snap.tick >= 1) this.state = 'playing';
+    this.tracker.apply(snap);
+    if (this.tracker.needsSync && this.net && now - this._lastSync > SYNC_COOLDOWN_MS) {
+      this._lastSync = now;
+      this.net.requestSync(); // a delta didn't fit our state: ask for the full picture
+    }
+    this._applyViews(snap, now);
+    this._alive = snap.snakes.filter((s) => s.a === 1).length;
+    this._handleEvents(snap.ev || []);
+    this._updateHud();
+    this._publishBoard(snap);
+  }
+
+  _applyViews(snap, now) {
+    const isTick = !snap.full;
     for (const s of snap.snakes) {
       const v = this.views.get(s.id);
       if (!v) continue;
@@ -173,26 +251,32 @@ export class NetGame extends Game {
       v.boostCooldownLeft = s.b[1];
       v.frozen = s.fz === 1;
 
-      const to = [];
-      for (let i = 0; i < s.c.length; i += 2) to.push({ x: s.c[i], y: s.c[i + 1] });
-      if (!v.alive) {
+      const flat = this.tracker.bodies.get(s.id);
+      if (!v.alive || !flat) {
         v.body = v.from = v.to = EMPTY_BODY;
-        if (wasAlive && v.id === this.myId && this.state !== 'idle') this.state = 'spectating';
+        if (s.id === this.myId) this.predictor.onSnapshot({ alive: false, cells: [] }, this.tracker.food, now);
+        if (wasAlive && !v.alive && v.id === this.myId && this.state !== 'idle') this.state = 'spectating';
         continue;
       }
-      // Glide from wherever the snake is currently DRAWN to the new authoritative
-      // cells (no pop, and never a client-side guess about where it "should" be).
-      v.from = immediate || !v.body.length ? to : v.body.map((p) => ({ x: p.x, y: p.y }));
+      const to = [];
+      for (let i = 0; i < flat.length; i += 2) to.push({ x: flat[i], y: flat[i + 1] });
+
+      if (s.id === this.myId && this.predictionEnabled) {
+        const before = this._localDisplay(now);
+        if (isTick) this.predictor.noteSnapshot(snap.tick, now);
+        this.predictor.onSnapshot(predictorState(snap, s, flat), this.tracker.food, now);
+        this._reconcile(before, now);
+        v.to = to; // authoritative body (HUD length etc.)
+        continue;
+      }
+
+      // Remote snake (or prediction switched off): glide from wherever it is drawn now
+      // to the new authoritative cells.
+      v.from = !v.body.length || snap.full ? to : v.body.map((p) => ({ x: p.x, y: p.y }));
       v.to = to;
       v.arrival = now;
-      if (immediate || !v.body.length) v.body = to.map((p) => ({ x: p.x, y: p.y }));
+      if (!v.body.length || snap.full) v.body = to.map((p) => ({ x: p.x, y: p.y }));
     }
-
-    const items = new Map();
-    for (let i = 0; i < snap.f.length; i += 2) items.set(cellKey(snap.f[i], snap.f[i + 1]), { x: snap.f[i], y: snap.f[i + 1] });
-    this.food.items = items;
-    this._alive = snap.snakes.filter((s) => s.a === 1).length;
-    if (immediate) this._updateHud();
   }
 
   _handleEvents(events) {
@@ -210,17 +294,35 @@ export class NetGame extends Game {
     }
   }
 
+  // The live leaderboard order is computed by the SERVER (`lb` = indices into
+  // `snakes`, sorted by its deterministic score ranking); the client only labels it.
+  _publishBoard(snap) {
+    if (!this.onBoard || !snap.lb) return;
+    const rows = snap.lb.map((idx, pos) => {
+      const s = snap.snakes[idx];
+      const v = this.views.get(s.id);
+      return { id: s.id, name: v ? v.name : '?', color: v ? v.color : '#fff', score: s.sc, alive: s.a === 1, isMe: s.id === this.myId, rank: pos + 1 };
+    });
+    this.onBoard(rows);
+  }
+
   _updateHud() {
     const me = this.me;
     if (!me) return;
+    let ticksLeft = me.boostTicksLeft;
+    let cooldown = me.boostCooldownLeft;
+    if (this._predicting()) {
+      const pb = this.predictor.predictedBoost(); // reflects a boost pressed a moment ago
+      if (pb) { ticksLeft = pb.ticksLeft; cooldown = pb.cooldown; }
+    }
     let boostState = 'ready';
     let boostSeconds = 0;
-    if (me.boostTicksLeft > 0) {
+    if (ticksLeft > 0) {
       boostState = 'active';
-      boostSeconds = (me.boostTicksLeft * CONFIG.TICK_MS) / 1000;
-    } else if (me.boostCooldownLeft > 0) {
+      boostSeconds = (ticksLeft * CONFIG.TICK_MS) / 1000;
+    } else if (cooldown > 0) {
       boostState = 'cooldown';
-      boostSeconds = (me.boostCooldownLeft * CONFIG.TICK_MS) / 1000;
+      boostSeconds = (cooldown * CONFIG.TICK_MS) / 1000;
     }
     let status = 'Playing';
     if (this.state === 'countdown') status = 'Get ready';
@@ -254,6 +356,62 @@ export class NetGame extends Game {
     if (this.onBanner) this.onBanner(text);
   }
 
+  // --- local snake: prediction + decaying visual correction -----------------------------------------
+
+  // What the local snake looks like at `now` (predicted position + any fading correction).
+  _localDisplay(now) {
+    const cells = this.predictor.active ? this.predictor.displayCells(now) : null;
+    if (!cells) return null;
+    if (this.offset) {
+      const k = Math.exp(-(now - this.offsetT) / OFFSET_TAU_MS);
+      if (k < 0.01) this.offset = null;
+      else {
+        const off = this.offset;
+        for (let i = 0; i < cells.length; i++) {
+          const o = off[i] || off[off.length - 1];
+          if (o) { cells[i].x += o.x * k; cells[i].y += o.y * k; }
+        }
+      }
+    }
+    return cells;
+  }
+
+  // The prediction was just rebuilt (new snapshot, or a new input). Keep the picture
+  // continuous: whatever was on screen minus what the new prediction says becomes a
+  // small offset that fades away. A big disagreement is not smoothed - it snaps.
+  _reconcile(before, now) {
+    this.offset = null;
+    if (!before) return;
+    const raw = this.predictor.displayCells(now);
+    if (!raw) return;
+    const off = new Array(raw.length);
+    let max = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const b = before[i] || before[before.length - 1];
+      const dx = b.x - raw[i].x;
+      const dy = b.y - raw[i].y;
+      off[i] = { x: dx, y: dy };
+      max = Math.max(max, Math.abs(dx), Math.abs(dy));
+    }
+    if (max > SNAP_THRESHOLD_CELLS || max < 0.002) return;
+    this.offset = off;
+    this.offsetT = now;
+  }
+
+  // Cells to draw for a snake at `now`. Also what the latency tests sample.
+  _bodyFor(v, now) {
+    if (v.id === this.myId && this.predictionEnabled && this.predictor.active) {
+      const cells = this._localDisplay(now);
+      const dir = this.predictor.direction(now);
+      if (cells && cells.length) {
+        if (dir) v.direction = { x: dir.x, y: dir.y };
+        return cells;
+      }
+    }
+    this._interpolate(v, now);
+    return v.body;
+  }
+
   // --- rendering -----------------------------------------------------------------------------------
 
   render() {
@@ -268,7 +426,8 @@ export class NetGame extends Game {
     const drawn = [];
     for (const v of this.views.values()) {
       if (!v.alive || !v.to.length) continue;
-      this._interpolate(v, now);
+      v.body = this._bodyFor(v, now);
+      if (!v.body.length) continue;
       this._renderSnake(ctx, v);
       drawn.push(v);
     }
