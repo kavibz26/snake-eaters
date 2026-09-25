@@ -92,6 +92,9 @@ export class InputManager {
   }
 
   _handleKeydown(e) {
+    // Typing in a text field (multiplayer nickname / room code) must never be hijacked as game input.
+    const target = e.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
     if (e.code === 'Space' || e.key === ' ') {
       e.preventDefault();
       if (this.onPauseToggle) this.onPauseToggle();

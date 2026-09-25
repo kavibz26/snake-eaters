@@ -1,0 +1,15 @@
+# Render Blueprint for the Snake Eaters multiplayer server.
+# The frontend stays on GitHub Pages; this only hosts the WebSocket server.
+services:
+  - type: web
+    name: snake-eaters-server
+    runtime: node
+    plan: free
+    buildCommand: npm --prefix server ci
+    startCommand: node server/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY # Render terminates TLS/proxies requests; use the forwarded client IP for per-IP limits
+        value: "1"

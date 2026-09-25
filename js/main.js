@@ -3,11 +3,16 @@ import { Hud } from './hud.js';
 import { InputManager } from './input.js';
 import { SKINS, loadSavedSkin, saveSkin } from './skins.js';
 import { renderSkinPreview } from './snakeRender.js';
+import { NetGame } from './net/netgame.js';
+import { initMultiplayer } from './net/mpui.js';
 
 const screens = {
   start: document.getElementById('startScreen'),
   game: document.getElementById('gameScreen'),
   gameover: document.getElementById('gameOverScreen'),
+  mpMenu: document.getElementById('mpMenuScreen'),
+  lobby: document.getElementById('lobbyScreen'),
+  mpResults: document.getElementById('mpResultsScreen'),
 };
 
 function showScreen(name) {
@@ -33,15 +38,15 @@ const hud = new Hud({
 });
 
 const game = new Game(canvas, hud);
+// Online multiplayer reuses the same canvas/HUD; `active` decides which one input drives.
+const netGame = new NetGame(canvas, hud);
+let active = game;
 
 // --- skin selection ---------------------------------------------------
 
 let selectedSkin = loadSavedSkin();
 
-function applySkin(skin) {
-  selectedSkin = skin;
-  saveSkin(skin.id);
-  game.setPlayerSkin(skin);
+function setYouBadge(skin) {
   youBadge.textContent = '';
   youBadge.appendChild(youDot);
   youBadge.append(`You are the ${skin.name} snake`);
@@ -50,6 +55,13 @@ function applySkin(skin) {
   youBadge.style.background = skin.ui + '1f';
   youDot.style.background = skin.ui;
   youDot.style.boxShadow = `0 0 8px ${skin.ui}`;
+}
+
+function applySkin(skin) {
+  selectedSkin = skin;
+  saveSkin(skin.id);
+  game.setPlayerSkin(skin);
+  setYouBadge(skin);
   skinPicker.querySelectorAll('.skin-card').forEach((btn) => {
     btn.classList.toggle('selected', btn.dataset.skinId === skin.id);
   });
@@ -89,12 +101,13 @@ function togglePause() {
 }
 
 function triggerBoost() {
-  game.activateBoost();
+  active.activateBoost();
 }
 
 const input = new InputManager({ canvas, dpad, swipeArea: document.querySelector('.arena-wrap') });
-input.onDirection = (dir) => game.setPlayerDirection(dir);
-input.onPauseToggle = togglePause;
+input.onDirection = (dir) => active.setPlayerDirection(dir);
+// Space pauses single-player only; in multiplayer there is no pause (the pause button asks to leave instead).
+input.onPauseToggle = () => { if (active === game) togglePause(); };
 input.onBoost = triggerBoost;
 input.onRestart = () => {
   if (game.state === 'gameover') beginRun();
@@ -103,7 +116,7 @@ input.onRestart = () => {
 // Auto-pause if the tab is backgrounded mid-run, so play never silently
 // continues (or the player dies) while they're away.
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && game.state === 'playing') togglePause();
+  if (document.hidden && active === game && game.state === 'playing') togglePause();
 });
 
 game.onGameOver = (result) => {
@@ -115,15 +128,31 @@ game.onGameOver = (result) => {
 };
 
 function beginRun() {
+  active = game;
   pausedOverlay.classList.add('hidden');
   game.setPlayerSkin(selectedSkin);
+  setYouBadge(selectedSkin);
   showScreen('game');
   game.restart();
 }
 
 document.getElementById('playBtn').addEventListener('click', beginRun);
 document.getElementById('restartBtn').addEventListener('click', beginRun);
-document.getElementById('pauseBtn').addEventListener('click', togglePause);
+document.getElementById('pauseBtn').addEventListener('click', () => (active === game ? togglePause() : netGame.togglePause()));
 document.getElementById('boostBtn').addEventListener('click', triggerBoost);
+
+initMultiplayer({
+  showScreen,
+  netGame,
+  getSelectedSkin: () => selectedSkin,
+  activate: () => {
+    active = netGame;
+    pausedOverlay.classList.add('hidden');
+  },
+  deactivate: () => {
+    active = game;
+  },
+  setYouBadge,
+});
 
 showScreen('start');

@@ -34,6 +34,7 @@
       <p class="combat-rule"><span class="rule-win">Bigger eats smaller.</span> Touch any part of a smaller snake to eliminate it - touch a <span class="rule-lose">bigger</span> one and it eliminates you.</p>
 
       <button id="playBtn" class="btn btn-primary btn-play">Play Now</button>
+      <button id="multiplayerBtn" class="btn btn-secondary btn-mp"><span aria-hidden="true">🌐</span> Multiplayer</button>
 
       <div class="start-section">
         <h2 class="section-label">Choose Your Snake</h2>
@@ -88,6 +89,17 @@
       <div id="pausedOverlay" class="overlay hidden">
         <div class="overlay-text">Paused</div>
       </div>
+      <div id="mpBanner" class="mp-banner hidden" role="status" aria-live="polite"></div>
+      <div id="mpLeaveOverlay" class="overlay hidden">
+        <div class="overlay-card">
+          <div class="overlay-text overlay-text--sm">Leave match?</div>
+          <p class="overlay-note">The match keeps running for everyone else.</p>
+          <div class="mp-actions">
+            <button id="mpStayBtn" class="btn btn-primary">Keep Playing</button>
+            <button id="mpLeaveBtn" class="btn btn-secondary">Leave</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="action-row">
@@ -111,6 +123,59 @@
         <div class="final-stat"><span class="hud-label">Eliminations</span><span id="finalEliminations" class="final-value">0</span></div>
       </div>
       <button id="restartBtn" class="btn btn-primary">Play Again</button>
+    </div>
+  </section>
+
+  <section id="mpMenuScreen" class="screen hidden">
+    <div class="panel mp-panel">
+      <h2 class="title title-sm">Multiplayer</h2>
+      <p id="mpMenuStatus" class="mp-status" role="status" aria-live="polite"></p>
+      <label class="mp-field" for="mpNick">
+        <span class="section-label">Your nickname</span>
+        <input id="mpNick" class="text-input" type="text" maxlength="14" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Nickname">
+      </label>
+      <div class="mp-skin-line">
+        <canvas id="mpSkinPreview" class="mp-skin-preview" width="84" height="60"></canvas>
+        <span>Playing as <strong id="mpSkinName"></strong><br><small>Change your snake on the main menu</small></span>
+      </div>
+      <div class="mp-actions">
+        <button id="mpCreateBtn" class="btn btn-primary">Create Room</button>
+        <button id="mpJoinToggleBtn" class="btn btn-secondary">Join Room</button>
+      </div>
+      <form id="mpJoinForm" class="mp-join hidden" autocomplete="off">
+        <input id="mpCode" class="text-input text-input--code" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="ROOM CODE" aria-label="Room code">
+        <button id="mpJoinBtn" type="submit" class="btn btn-primary">Join</button>
+      </form>
+      <button id="mpBackBtn" class="btn btn-link">&larr; Back</button>
+    </div>
+  </section>
+
+  <section id="lobbyScreen" class="screen hidden">
+    <div class="panel mp-panel">
+      <h2 class="title title-sm">Room</h2>
+      <div class="room-code-box">
+        <span class="section-label">Room code</span>
+        <div id="roomCode" class="room-code">-----</div>
+        <button id="copyCodeBtn" class="btn btn-secondary btn-sm">Copy Code</button>
+      </div>
+      <p id="lobbyStatus" class="mp-status" role="status" aria-live="polite">Waiting for players...</p>
+      <ul id="playerList" class="player-list"></ul>
+      <div class="mp-actions">
+        <button id="startMatchBtn" class="btn btn-primary hidden">Start Match</button>
+      </div>
+      <button id="leaveRoomBtn" class="btn btn-link">Leave Room</button>
+    </div>
+  </section>
+
+  <section id="mpResultsScreen" class="screen hidden">
+    <div class="panel mp-panel">
+      <h2 id="mpResultTitle" class="title title-sm">Match Over</h2>
+      <p id="mpResultSub" class="mp-status"></p>
+      <ol id="standings" class="player-list"></ol>
+      <div class="mp-actions">
+        <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobby</button>
+      </div>
+      <button id="resultsLeaveBtn" class="btn btn-link">Leave Room</button>
     </div>
   </section>
 
