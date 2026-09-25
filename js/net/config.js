@@ -2,9 +2,9 @@
 // Pages), so the server is deployed separately - see server/README.md.
 //
 // Not a secret: it's a public endpoint, same as any website's API URL.
-// Leave empty until the server is deployed; the UI then reports
-// "multiplayer isn't available yet" instead of failing mysteriously.
-const PRODUCTION_SERVER_URL = '';
+// If left empty, the UI reports "multiplayer isn't available yet" instead of
+// failing mysteriously.
+const PRODUCTION_SERVER_URL = 'wss://snake-eaters-server.onrender.com';
 
 const host = typeof location !== 'undefined' ? location.hostname : '';
 const isLocal = host === 'localhost' || host === '127.0.0.1';
