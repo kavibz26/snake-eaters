@@ -24,6 +24,7 @@
 import { CONFIG, cellKey } from '../config.js';
 import { Snake } from '../snake.js';
 import { inBounds } from '../collision.js';
+import { takesExtraStep } from '../powerups/effects.js';
 import { DIR_VECS, dirIndex } from './snapcodec.js';
 
 const PLACEHOLDER_SKIN = { ui: '#ffffff' };
@@ -50,6 +51,7 @@ export function predictorState(snap, s, flat) {
     growPending: s.g || 0,
     boostTicksLeft: s.b[0],
     boostCooldownLeft: s.b[1],
+    speedTicksLeft: s.e ? s.e[0] : 0,
     ack: s.q || 0,
     alive: s.a === 1,
   };
@@ -192,6 +194,7 @@ export class LocalPredictor {
     s.growPending = b.growPending || 0;
     s.boostTicksLeft = b.boostTicksLeft || 0;
     s.boostCooldownLeft = b.boostCooldownLeft || 0;
+    s.speedTicksLeft = b.speedTicksLeft || 0; // authoritative Speed power-up timer (the server decides pickups)
     this.sim = s;
     this.eaten = new Set();
     this.simTick = b.tick;
@@ -221,8 +224,12 @@ export class LocalPredictor {
       if (i.kind === 'dir') s.queueDirection(i.dir);
       else s.activateBoost(CONFIG.BOOST_DURATION_TICKS);
     }
-    if (s.boostTicksLeft > 0) {
-      this._move(s);
+    // Same order as the server: the extra step (Boost every tick, Speed every 2nd; never more than one), then the normal move.
+    const boosting = s.boostTicksLeft > 0;
+    const extra = takesExtraStep(s, j);
+    if (s.speedTicksLeft > 0) s.speedTicksLeft--;
+    if (extra) this._move(s);
+    if (boosting) {
       s.boostTicksLeft--;
       if (s.boostTicksLeft === 0) s.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
     } else if (s.boostCooldownLeft > 0) {

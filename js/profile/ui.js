@@ -34,6 +34,8 @@ const STATS = [
   ['Play time', (s) => formatPlayTime(s.totalPlayTime)],
   ['Online games', (s) => formatNumber(s.multiplayerGames)],
   ['Online wins', (s) => formatNumber(s.multiplayerWins)],
+  ['Power-ups', (s) => formatNumber(s.powerupsCollected)],
+  ['Mega food', (s) => formatNumber(s.megaFoodCollected)],
 ];
 
 export function initProfileUI({ profile, showScreen, applySkin }) {

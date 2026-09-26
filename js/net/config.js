@@ -20,7 +20,7 @@ export const SERVER_URL = safeOverride || (isLocal ? `ws://${host}:8787` : PRODU
 
 // Must match server/protocol.js. A mismatch makes the server answer
 // "bad_version" so a stale cached page is told to refresh.
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export const CONNECT_TIMEOUT_MS = 45000; // free hosts can take ~a minute to wake from sleep
 export const WAKING_HINT_AFTER_MS = 4000;

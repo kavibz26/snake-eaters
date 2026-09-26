@@ -1,3 +1,5 @@
+import { POWERUPS } from '../powerups/config.js';
+
 // Every progression number lives here: the XP curve, XP rewards, skin unlock levels and the
 // profile limits. Nothing else in the game hard-codes an XP amount or a level requirement.
 
@@ -34,6 +36,10 @@ export const REWARDS = {
     survivalCap: 60,
     victory: 50,
     newHighScore: 25,
+    powerupEach: POWERUPS.xp.powerupEach, // Speed / Magnet / Shield pickups (numbers live in js/powerups/config.js)
+    powerupCap: POWERUPS.xp.powerupCap,
+    megaEach: POWERUPS.xp.megaEach, // Mega Food pickups
+    megaCap: POWERUPS.xp.megaCap,
   },
   multiplayer: {
     played: 20, // multiplayer participation
@@ -44,6 +50,10 @@ export const REWARDS = {
     survivedAtEnd: 15,
     victory: 60, // multiplayer victory (decided by the server)
     newHighScore: 25,
+    powerupEach: POWERUPS.xp.powerupEach,
+    powerupCap: POWERUPS.xp.powerupCap,
+    megaEach: POWERUPS.xp.megaEach,
+    megaCap: POWERUPS.xp.megaCap,
   },
   highScoreMinimum: 100, // a "new personal best" only pays out once it is a real score
   maxSingleGrant: 5000, // sanity ceiling for any one addXP() call
@@ -51,7 +61,7 @@ export const REWARDS = {
 
 // Points the server / game awards, used to work food eaten back out of an authoritative
 // multiplayer score (score = 10 per food + 100 per kill).
-export const SCORING = { foodScore: 10, killScore: 100 };
+export const SCORING = { foodScore: 10, killScore: 100, megaScore: POWERUPS.mega.score };
 
 // --- skin unlocks ----------------------------------------------------------------------------------
 // Level at which each skin becomes available. Skins are never taken away once unlocked.

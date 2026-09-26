@@ -3,7 +3,7 @@
 import { getSkinById } from '../skins.js';
 import { renderSkinPreview } from '../snakeRender.js';
 import { XP_FEED_GROUP_MS } from './config.js';
-import { foodXP, killXP } from './rewards.js';
+import { foodXP, killXP, powerupXP, megaXP } from './rewards.js';
 import { getLevelProgress } from './xp.js';
 
 const $ = (tag, cls, text) => {
@@ -19,8 +19,8 @@ const $ = (tag, cls, text) => {
 // actually added to the profile comes from the final result, exactly once.
 export function createXpFeed(root) {
   let mode = 'single';
-  let counts = { food: 0, kill: 0 };
-  let group = null; // { xp, food, kill }
+  let counts = { food: 0, kill: 0, powerup: 0, mega: 0 };
+  let group = null; // { xp, food, kill, powerup, mega }
   let hideTimer = null;
   let raf = 0;
 
@@ -30,6 +30,8 @@ export function createXpFeed(root) {
     const parts = [];
     if (group.food) parts.push(`${group.food} food`);
     if (group.kill) parts.push(group.kill === 1 ? '1 kill' : `${group.kill} kills`);
+    if (group.powerup) parts.push(group.powerup === 1 ? '1 power-up' : `${group.powerup} power-ups`);
+    if (group.mega) parts.push(group.mega === 1 ? '1 mega food' : `${group.mega} mega food`);
     root.textContent = '';
     root.append($('span', 'xp-feed-xp', `+${group.xp} XP`), $('span', 'xp-feed-what', parts.join(' · ')));
     root.classList.remove('hidden');
@@ -41,7 +43,7 @@ export function createXpFeed(root) {
   return {
     reset(nextMode) {
       mode = nextMode === 'multiplayer' ? 'multiplayer' : 'single';
-      counts = { food: 0, kill: 0 };
+      counts = { food: 0, kill: 0, powerup: 0, mega: 0 };
       this.clear();
     },
     clear() {
@@ -52,15 +54,16 @@ export function createXpFeed(root) {
       root.classList.add('hidden');
       root.textContent = '';
     },
-    // kind: 'food' | 'kill'
+    // kind: 'food' | 'kill' | 'powerup' | 'mega'
     event(kind) {
-      if (kind !== 'food' && kind !== 'kill') return;
-      const before = kind === 'food' ? foodXP(mode, counts.food) : killXP(mode, counts.kill);
+      const xpFor = { food: foodXP, kill: killXP, powerup: powerupXP, mega: megaXP }[kind];
+      if (!xpFor) return;
+      const before = xpFor(mode, counts[kind]);
       counts[kind]++;
-      const after = kind === 'food' ? foodXP(mode, counts.food) : killXP(mode, counts.kill);
+      const after = xpFor(mode, counts[kind]);
       const xp = after - before;
       if (xp <= 0) return; // per-match cap reached: nothing more to show
-      group = group || { xp: 0, food: 0, kill: 0 };
+      group = group || { xp: 0, food: 0, kill: 0, powerup: 0, mega: 0 };
       group.xp += xp;
       group[kind]++;
       if (!raf) raf = requestAnimationFrame(paint); // at most one repaint per frame, however many events

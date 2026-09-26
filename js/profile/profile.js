@@ -180,6 +180,8 @@ export class Profile {
       length: int(result.length),
       kills: int(result.kills),
       food: int(result.food),
+      powerups: int(result.powerups),
+      mega: int(result.mega),
       playSeconds: int(result.playSeconds, MAX_PLAY_SECONDS),
     };
     const s = this.data.stats;
@@ -194,6 +196,8 @@ export class Profile {
     s.highestScore = Math.max(s.highestScore, r.score);
     s.longestSnake = Math.max(s.longestSnake, r.length);
     s.totalPlayTime += r.playSeconds;
+    s.powerupsCollected += r.powerups;
+    s.megaFoodCollected += r.mega;
     if (r.mode === 'multiplayer') {
       s.multiplayerGames += 1;
       if (r.victory) s.multiplayerWins += 1;

@@ -10,6 +10,7 @@
 //                    server, and the prediction is rebuilt from each snapshot.
 import { Game } from '../game.js';
 import { CONFIG } from '../config.js';
+import { drawSpecialItem, activeEffectsForHud } from '../powerups/render.js';
 import { getSkinById } from '../skins.js';
 import { FoodManager } from '../food.js';
 import { roundedSquare } from '../snakeRender.js';
@@ -245,6 +246,7 @@ export class NetGame extends Game {
       for (const ev of snap.ev || []) {
         if (ev.e === 'eat' && ev.id === this.myId) this.onPlayerEvent('food');
         else if (ev.e === 'kill' && ev.killer === this.myId) this.onPlayerEvent('kill');
+        else if (ev.e === 'pu' && ev.id === this.myId) this.onPlayerEvent(ev.k === 'mega' ? 'mega' : 'powerup');
       }
     }
     this._updateHud();
@@ -265,6 +267,10 @@ export class NetGame extends Game {
       v.boostTicksLeft = s.b[0];
       v.boostCooldownLeft = s.b[1];
       v.frozen = s.fz === 1;
+      const fx = s.e; // authoritative power-up timers [speed, magnet, shield], absent when none is active
+      v.speedTicksLeft = fx ? fx[0] : 0;
+      v.magnetTicksLeft = fx ? fx[1] : 0;
+      v.shieldTicksLeft = fx ? fx[2] : 0;
 
       const flat = this.tracker.bodies.get(s.id);
       if (!v.alive || !flat) {
@@ -305,6 +311,10 @@ export class NetGame extends Game {
       } else if (ev.e === 'death') {
         const v = this.views.get(ev.id);
         this._spawnDeathParticles({ x: ev.x, y: ev.y }, v ? v.color : '#ffffff');
+      } else if (ev.e === 'pu') {
+        this._spawnPickupEffect({ x: ev.x, y: ev.y }, ev.k);
+      } else if (ev.e === 'shield') {
+        this._spawnShieldBlock({ x: ev.x, y: ev.y });
       }
     }
   }
@@ -350,6 +360,7 @@ export class NetGame extends Game {
       status,
       boostState,
       boostSeconds,
+      effects: me.alive ? activeEffectsForHud(me, CONFIG.TICK_MS) : [],
     });
   }
 
@@ -440,6 +451,7 @@ export class NetGame extends Game {
     this.food.render(ctx, CONFIG.CELL_SIZE);
 
     const now = performance.now();
+    for (const item of this.tracker.specials.values()) drawSpecialItem(ctx, item, CONFIG.CELL_SIZE, now); // server-owned items
     const drawn = [];
     for (const v of this.views.values()) {
       if (!v.alive || !v.to.length) continue;

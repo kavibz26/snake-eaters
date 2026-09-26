@@ -14,14 +14,22 @@ export function killXP(mode, n) {
   const r = REWARDS[mode];
   return Math.min(r.killCap, int(n) * r.killEach);
 }
-
-// Multiplayer results carry score / kills / length, not food; score = food * 10 + kills * 100,
-// so the food count can be recovered exactly and cannot be inflated by the client.
-export function foodFromMultiplayerScore(score, kills) {
-  return Math.floor(Math.max(0, int(score) - int(kills) * SCORING.killScore) / SCORING.foodScore);
+export function powerupXP(mode, n) {
+  const r = REWARDS[mode];
+  return Math.min(r.powerupCap, int(n) * r.powerupEach);
+}
+export function megaXP(mode, n) {
+  const r = REWARDS[mode];
+  return Math.min(r.megaCap, int(n) * r.megaEach);
 }
 
-// result: { mode: 'single' | 'multiplayer', victory, survived, score, kills, food, playSeconds }
+// Multiplayer results carry score / kills / mega, not food; score = food * 10 + kills * 100 + mega * 50,
+// so the food count can be recovered exactly and cannot be inflated by the client.
+export function foodFromMultiplayerScore(score, kills, mega = 0) {
+  return Math.floor(Math.max(0, int(score) - int(kills) * SCORING.killScore - int(mega) * SCORING.megaScore) / SCORING.foodScore);
+}
+
+// result: { mode: 'single' | 'multiplayer', victory, survived, score, kills, food, powerups, mega, playSeconds }
 // previousHighScore: the profile's high score BEFORE this match.
 // Returns { items: [{ id, label, xp, count? }], total }.
 export function computeMatchRewards(result, previousHighScore = 0) {
@@ -38,6 +46,10 @@ export function computeMatchRewards(result, previousHighScore = 0) {
   add('food', 'Food eaten', foodXP(mode, food), food);
   const kills = int(result.kills);
   add('kills', kills === 1 ? 'Kill' : 'Kills', killXP(mode, kills), kills);
+  const powerups = int(result.powerups);
+  add('powerups', 'Power-ups', powerupXP(mode, powerups), powerups);
+  const mega = int(result.mega);
+  add('mega', 'Mega Food', megaXP(mode, mega), mega);
 
   if (mode === 'single') {
     add('survival', 'Survival', Math.min(r.survivalCap, Math.floor(seconds / 10) * r.survivalPer10s));

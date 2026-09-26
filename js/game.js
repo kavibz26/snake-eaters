@@ -5,6 +5,9 @@ import { inBounds, cellsEqual, buildOccupancyMap } from './collision.js';
 import { decideAIDirection, getAIDisplayState } from './ai.js';
 import { SKINS, DEFAULT_SKIN_ID, getSkinById } from './skins.js';
 import { paintSnakeSegment, roundedSquare } from './snakeRender.js';
+import { PowerUpManager, magnetPull } from './powerups/manager.js';
+import { collectSpecial, takesExtraStep, absorbLethal, endOfTickEffects } from './powerups/effects.js';
+import { drawSpecialItem, drawSnakeEffects, activeEffectsForHud, POWERUP_STYLE } from './powerups/render.js';
 
 const AI_PROFILES = ['forager', 'hunter', 'cautious'];
 
@@ -51,6 +54,7 @@ export class Game {
   init() {
     this.snakes = this._spawnSnakes();
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
+    this.specials = new PowerUpManager(); // fresh board, fresh timers: nothing carries over from a previous run
     this._seedPlayerSpawnFood();
     this.food.replenish((x, y) => this._isCellBlocked(x, y), this.food.target);
     this.particles = [];
@@ -157,31 +161,43 @@ export class Game {
     // than a cosmetic effect, without touching the AI/collision pipeline at
     // all. A boost-step death is unambiguous - the player drove into
     // something in isolation - so it's treated as a normal, fair death.
-    if (player.alive && player.boostTicksLeft > 0) {
-      const preOcc = buildOccupancyMap(this.snakes);
-      const nh = player.nextHead();
-      if (!inBounds(nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
-        player.kill();
-        this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
-        this._spawnDeathParticles(player.head, player.color);
-        this._endGame(false);
-        return;
+    // The Speed power-up uses this same extra-step mechanism (one extra step every 2nd tick); a snake
+    // takes at most ONE extra step per tick, so Boost + Speed together cap at 2 cells/tick.
+    if (player.alive) {
+      const boosting = player.boostTicksLeft > 0;
+      const extra = takesExtraStep(player, this.tickCount);
+      if (player.speedTicksLeft > 0) player.speedTicksLeft--;
+      if (extra) {
+        const preOcc = buildOccupancyMap(this.snakes);
+        const nh = player.nextHead();
+        if (!inBounds(nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
+          if (!this._absorb(player)) {
+            player.kill();
+            this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
+            this._spawnDeathParticles(player.head, player.color);
+            this._endGame(false);
+            return;
+          }
+        } else {
+          if (this.food.has(nh.x, nh.y)) {
+            player.grow(1);
+            player.foodEaten++;
+            player.score += CONFIG.FOOD_SCORE;
+            player.justAte = true;
+            this.food.removeAt(nh.x, nh.y);
+            this._spawnEatParticles(nh);
+            if (this.onPlayerEvent) this.onPlayerEvent('food');
+          }
+          this._pickup(player, nh);
+          player.commitMove(nh);
+        }
       }
-      if (this.food.has(nh.x, nh.y)) {
-        player.grow(1);
-        player.foodEaten++;
-        player.score += CONFIG.FOOD_SCORE;
-        player.justAte = true;
-        this.food.removeAt(nh.x, nh.y);
-        this._spawnEatParticles(nh);
-        if (this.onPlayerEvent) this.onPlayerEvent('food');
+      if (boosting) {
+        player.boostTicksLeft--;
+        if (player.boostTicksLeft === 0) player.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
+      } else if (player.boostCooldownLeft > 0) {
+        player.boostCooldownLeft--;
       }
-      player.commitMove(nh);
-
-      player.boostTicksLeft--;
-      if (player.boostTicksLeft === 0) player.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
-    } else if (player.boostCooldownLeft > 0) {
-      player.boostCooldownLeft--;
     }
 
     const aliveSnakes = this.snakes.filter((s) => s.alive);
@@ -224,6 +240,7 @@ export class Game {
           if (this.onPlayerEvent) this.onPlayerEvent('food');
         }
       }
+      if (snake.isPlayer) this._pickup(snake, nh); // special items are for the player only; AI ignore them
     }
 
     // 4. Solid-body occupancy for this tick (tail cells excluded unless growing).
@@ -240,28 +257,32 @@ export class Game {
     for (const snake of aliveSnakes) {
       const nh = moves.get(snake);
       if (!inBounds(nh.x, nh.y)) {
-        deaths.set(snake, null);
+        this._lethal(snake, null, deaths, bounced);
         continue;
       }
       const occupant = occupancyMap.get(cellKey(nh.x, nh.y));
       if (!occupant) continue;
       if (occupant === snake) {
-        deaths.set(snake, null);
+        this._lethal(snake, null, deaths, bounced);
         continue;
       }
       if (deaths.has(occupant)) continue; // already eliminated by someone else this tick
       if (snake.length > occupant.length) {
-        this._creditKill(snake, occupant);
-        deaths.set(occupant, snake);
+        // The occupant would be eaten. A shield takes the hit instead: the attacker is held back and nobody dies.
+        if (this._absorb(occupant)) bounced.add(snake);
+        else {
+          this._creditKill(snake, occupant);
+          deaths.set(occupant, snake);
+        }
       } else {
-        deaths.set(snake, occupant);
+        this._lethal(snake, occupant, deaths, bounced);
       }
     }
 
     // 5b. Head-to-head pileups: multiple snakes converging on the same free cell.
     const cellGroups = new Map();
     for (const snake of aliveSnakes) {
-      if (deaths.has(snake)) continue;
+      if (deaths.has(snake) || bounced.has(snake)) continue;
       const nh = moves.get(snake);
       if (!inBounds(nh.x, nh.y)) continue;
       const key = cellKey(nh.x, nh.y);
@@ -307,6 +328,25 @@ export class Game {
       }
     }
 
+    // 7b. Power-ups: Magnet pull (player only), spawn / expire special items, end-of-tick effect timers.
+    if (player.alive) {
+      magnetPull({
+        snakes: [player],
+        food: this.food,
+        isBlocked: (x, y) => this._isCellBlocked(x, y),
+        collect: (snake, f) => {
+          snake.grow(1);
+          snake.foodEaten++;
+          snake.score += CONFIG.FOOD_SCORE;
+          snake.justAte = true;
+          this._spawnEatParticles(f);
+          if (this.onPlayerEvent) this.onPlayerEvent('food');
+        },
+      });
+    }
+    this.specials.update({ tick: this.tickCount, snakes: this.snakes, isBlocked: (x, y) => this._isCellBlocked(x, y) });
+    for (const s of this.snakes) if (s.alive) endOfTickEffects(s);
+
     // 8. Keep food topped up.
     this.food.replenish((x, y) => this._isCellBlocked(x, y));
 
@@ -334,15 +374,66 @@ export class Game {
       const winner = survivors[0];
       for (const loser of group) {
         if (loser === winner) continue;
-        this._creditKill(winner, loser);
-        deaths.set(loser, winner);
+        if (this._absorb(loser)) bounced.add(loser); // the shield holds the loser back: no kill, no death
+        else {
+          this._creditKill(winner, loser);
+          deaths.set(loser, winner);
+        }
       }
     } else {
       for (const s of survivors) bounced.add(s);
       for (const s of group) {
-        if (!survivors.includes(s)) deaths.set(s, null);
+        if (survivors.includes(s)) continue;
+        if (this._absorb(s)) bounced.add(s);
+        else deaths.set(s, null);
       }
     }
+  }
+
+  // --- power-ups ----------------------------------------------------------
+
+  // The lethal-collision rule (js/powerups/effects.js). true = a shield absorbed it.
+  _absorb(snake) {
+    const r = absorbLethal(snake);
+    if (r === 'consumed') this._spawnShieldBlock(snake.head);
+    return r !== false;
+  }
+
+  // A snake would die here: held in place if a shield absorbs it, otherwise it dies.
+  _lethal(snake, killer, deaths, bounced) {
+    if (this._absorb(snake)) bounced.add(snake);
+    else deaths.set(snake, killer);
+  }
+
+  _pickup(snake, cell) {
+    const item = this.specials.take(cell.x, cell.y);
+    if (!item) return;
+    const res = collectSpecial(snake, item.type);
+    if (!res) return;
+    this._spawnPickupEffect(cell, item.type);
+    if (this.onPlayerEvent) this.onPlayerEvent(res.kind === 'mega' ? 'mega' : 'powerup');
+  }
+
+  _spawnPickupEffect(cell, type) {
+    const cx = cell.x * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
+    const cy = cell.y * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
+    const style = POWERUP_STYLE[type];
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI * 2 * i) / 10;
+      this.particles.push({ x: cx, y: cy, vx: Math.cos(angle) * 80, vy: Math.sin(angle) * 80, life: 0, maxLife: 380, color: style.color });
+    }
+    this.particles.push({ type: 'text', text: style.label, x: cx, y: cy - 12, vx: 0, vy: -28, life: 0, maxLife: 800, color: style.color });
+  }
+
+  _spawnShieldBlock(cell) {
+    const cx = cell.x * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
+    const cy = cell.y * CONFIG.CELL_SIZE + CONFIG.CELL_SIZE / 2;
+    this.particles.push({ type: 'ring', x: cx, y: cy, vx: 0, vy: 0, life: 0, maxLife: 450, color: '#5db3ff' });
+    for (let i = 0; i < 12; i++) {
+      const angle = (Math.PI * 2 * i) / 12;
+      this.particles.push({ x: cx, y: cy, vx: Math.cos(angle) * 110, vy: Math.sin(angle) * 110, life: 0, maxLife: 350, color: '#a0d7ff' });
+    }
+    this.particles.push({ type: 'text', text: 'BLOCKED!', x: cx, y: cy - 12, vx: 0, vy: -30, life: 0, maxLife: 800, color: '#a0d7ff' });
   }
 
   // The one reward path for every kill in the game, however it happened
@@ -357,7 +448,7 @@ export class Game {
   }
 
   _isCellBlocked(x, y) {
-    if (this.food.has(x, y)) return true;
+    if (this.food.has(x, y) || this.specials.has(x, y)) return true;
     for (const s of this.snakes) {
       if (!s.alive) continue;
       for (const c of s.body) {
@@ -379,6 +470,8 @@ export class Game {
         length: player.length,
         eliminations: player.eliminations,
         foodEaten: player.foodEaten,
+        powerups: player.powerupsCollected,
+        mega: player.megaCollected,
         ticks: this.tickCount,
       });
     }
@@ -404,6 +497,7 @@ export class Game {
       status,
       boostState,
       boostSeconds,
+      effects: activeEffectsForHud(player, CONFIG.TICK_MS),
     });
   }
 
@@ -599,6 +693,8 @@ export class Game {
     ctx.clearRect(0, 0, w, h);
     this._renderBackground(ctx, w, h);
     this.food.render(ctx, CONFIG.CELL_SIZE);
+    const now = performance.now();
+    for (const item of this.specials.all()) drawSpecialItem(ctx, item, CONFIG.CELL_SIZE, now);
     for (const snake of this.snakes) {
       if (snake.alive) this._renderSnake(ctx, snake);
     }
@@ -649,6 +745,7 @@ export class Game {
       }
     }
 
+    drawSnakeEffects(ctx, snake, cs, performance.now()); // power-up auras (no-ops for a snake without any)
     if (snake.isPlayer) {
       this._renderPlayerMarker(ctx, snake);
     } else {

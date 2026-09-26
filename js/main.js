@@ -38,6 +38,7 @@ const hud = new Hud({
   remaining: document.getElementById('hudRemaining'),
   status: document.getElementById('hudStatus'),
   boostBtn: document.getElementById('boostBtn'),
+  effects: document.getElementById('fxHud'),
 });
 
 const game = new Game(canvas, hud);

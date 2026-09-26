@@ -24,6 +24,16 @@ server/protocol.js  constants (lobby count / capacity / timers), nickname + chat
 - The lobby browser subscribes once (`lobbies`) and receives compact pushes
   (`{t:'lu', id, p, m, s}`) - no polling. Chat and rosters are scoped to the lobby you are in.
 
+## Power-ups and special food (protocol v4)
+
+Four special items - Speed, Magnet, Shield, Mega Food - are owned entirely by the server
+(`js/powerups/`, shared with single player; every balance number is in `js/powerups/config.js`).
+The server decides where items spawn, who collects them, how long effects last, whether a Shield
+absorbs a lethal collision, and the Mega Food score. Clients only send `input`; they receive
+per-snake timers (`e: [speed, magnet, shield]` ticks), items (`sp` on full snapshots, `spa` / `spr`
+deltas), events (`pu` pickup, `shield` block) and the pickup counters in `over` results
+(`powerups`, `mega`). Anything a client sends about power-ups is ignored.
+
 ## Run locally
 
 ```bash

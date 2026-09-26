@@ -9,10 +9,13 @@ import { inBounds, cellsEqual, buildOccupancyMap } from '../js/collision.js';
 import { getSkinById } from '../js/skins.js';
 import { MATCH_MAX_TICKS } from './protocol.js';
 import { dirIndex, encodeBodyDelta } from '../js/net/snapcodec.js';
+import { PowerUpManager, magnetPull } from '../js/powerups/manager.js';
+import { POWERUP_INDEX } from '../js/powerups/config.js';
+import { collectSpecial, takesExtraStep, absorbLethal, endOfTickEffects } from '../js/powerups/effects.js';
 
 export class MatchSim {
-  // entries: [{ id, name, skinId }]
-  constructor(entries) {
+  // entries: [{ id, name, skinId }]   options: { rng } (tests inject a seeded generator for the power-up spawner)
+  constructor(entries, options = {}) {
     this.tickCount = 0;
     this.events = [];
     this.over = false;
@@ -21,6 +24,7 @@ export class MatchSim {
     this.snakes = [];
     this.byId = new Map();
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
+    this.specials = new PowerUpManager({ rng: options.rng || Math.random }); // server-owned: where items spawn, who collects them
 
     this._spawnSnakes(entries);
     for (const s of this.snakes) this._seedSpawnFood(s);
@@ -91,26 +95,34 @@ export class MatchSim {
     // tick; hitting a wall or any body during it is a plain death (existing
     // rule). Boosters are processed in a rotating order so nobody gets a
     // permanent first-mover edge.
+    // The Speed power-up rides on the same extra-step mechanism (one extra step every 2nd tick);
+    // a snake never takes more than ONE extra step per tick, so Boost + Speed cap at 2 cells/tick.
     const n = this.snakes.length;
     for (let k = 0; k < n; k++) {
       const snake = this.snakes[(k + this.tickCount) % n];
       if (!snake.alive || snake.frozen) continue;
-      if (snake.boostTicksLeft > 0) {
+      const boosting = snake.boostTicksLeft > 0;
+      const extra = takesExtraStep(snake, this.tickCount);
+      if (snake.speedTicksLeft > 0) snake.speedTicksLeft--;
+      if (extra) {
         const preOcc = buildOccupancyMap(this.snakes);
         const nh = snake.nextHead();
         if (!inBounds(nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
-          this._killSnake(snake, null, 'boost');
-          continue;
+          if (!this._absorb(snake)) this._killSnake(snake, null, 'boost');
+        } else {
+          if (this.food.has(nh.x, nh.y)) {
+            snake.grow(1);
+            snake.foodEaten++;
+            snake.score += CONFIG.FOOD_SCORE;
+            snake.justAte = true;
+            this.food.removeAt(nh.x, nh.y);
+            this.events.push({ e: 'eat', id: snake.playerId, x: nh.x, y: nh.y });
+          }
+          this._pickup(snake, nh.x, nh.y);
+          snake.commitMove(nh);
         }
-        if (this.food.has(nh.x, nh.y)) {
-          snake.grow(1);
-          snake.foodEaten++;
-          snake.score += CONFIG.FOOD_SCORE;
-          snake.justAte = true;
-          this.food.removeAt(nh.x, nh.y);
-          this.events.push({ e: 'eat', id: snake.playerId, x: nh.x, y: nh.y });
-        }
-        snake.commitMove(nh);
+      }
+      if (boosting) {
         snake.boostTicksLeft--;
         if (snake.boostTicksLeft === 0) snake.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
       } else if (snake.boostCooldownLeft > 0) {
@@ -135,6 +147,7 @@ export class MatchSim {
         this.food.removeAt(nh.x, nh.y);
         this.events.push({ e: 'eat', id: snake.playerId, x: nh.x, y: nh.y });
       }
+      this._pickup(snake, nh.x, nh.y);
     }
 
     // 4. Solid-body occupancy (frozen snakes included, tail solid).
@@ -147,28 +160,32 @@ export class MatchSim {
     for (const snake of movers) {
       const nh = moves.get(snake);
       if (!inBounds(nh.x, nh.y)) {
-        deaths.set(snake, null);
+        this._lethal(snake, null, deaths, bounced);
         continue;
       }
       const occupant = occupancyMap.get(cellKey(nh.x, nh.y));
       if (!occupant) continue;
       if (occupant === snake) {
-        deaths.set(snake, null);
+        this._lethal(snake, null, deaths, bounced);
         continue;
       }
       if (deaths.has(occupant)) continue;
       if (snake.length > occupant.length) {
-        this._creditKill(snake, occupant);
-        deaths.set(occupant, snake);
+        // The occupant would be eaten. A shield takes the hit instead: the attacker is held back and nobody dies.
+        if (this._absorb(occupant)) bounced.add(snake);
+        else {
+          this._creditKill(snake, occupant);
+          deaths.set(occupant, snake);
+        }
       } else {
-        deaths.set(snake, occupant);
+        this._lethal(snake, occupant, deaths, bounced);
       }
     }
 
     // 5b. Head-to-head pileups on the same free cell.
     const cellGroups = new Map();
     for (const snake of movers) {
-      if (deaths.has(snake)) continue;
+      if (deaths.has(snake) || bounced.has(snake)) continue;
       const nh = moves.get(snake);
       if (!inBounds(nh.x, nh.y)) continue;
       const key = cellKey(nh.x, nh.y);
@@ -203,6 +220,24 @@ export class MatchSim {
       this._killSnake(snake, killer, killer ? 'eaten' : 'crash');
     }
 
+    // 7b. Power-ups: Magnet pull, then spawn / expire special items, then end-of-tick effect timers.
+    const order = this.snakes.filter((s) => s.alive && !s.frozen);
+    if (order.length > 1) order.push(...order.splice(0, this.tickCount % order.length)); // rotate: no permanent first-puller edge
+    magnetPull({
+      snakes: order,
+      food: this.food,
+      isBlocked: (x, y) => this._isCellBlocked(x, y),
+      collect: (snake, f) => {
+        snake.grow(1);
+        snake.foodEaten++;
+        snake.score += CONFIG.FOOD_SCORE;
+        snake.justAte = true;
+        this.events.push({ e: 'eat', id: snake.playerId, x: f.x, y: f.y });
+      },
+    });
+    this.specials.update({ tick: this.tickCount, snakes: this.snakes, isBlocked: (x, y) => this._isCellBlocked(x, y) });
+    for (const s of this.snakes) if (s.alive) endOfTickEffects(s);
+
     // 8. Keep food topped up.
     this.food.replenish((x, y) => this._isCellBlocked(x, y));
 
@@ -228,15 +263,41 @@ export class MatchSim {
       const winner = survivors[0];
       for (const loser of group) {
         if (loser === winner) continue;
-        this._creditKill(winner, loser);
-        deaths.set(loser, winner);
+        if (this._absorb(loser)) bounced.add(loser); // the shield holds the loser back: no kill, no death
+        else {
+          this._creditKill(winner, loser);
+          deaths.set(loser, winner);
+        }
       }
     } else {
       for (const s of survivors) bounced.add(s);
       for (const s of group) {
-        if (!survivors.includes(s)) deaths.set(s, null);
+        if (survivors.includes(s)) continue;
+        if (this._absorb(s)) bounced.add(s);
+        else deaths.set(s, null);
       }
     }
+  }
+
+  // --- power-ups (the server decides everything: what spawns, who collects, whether a shield blocks) ---
+
+  // The lethal-collision rule (js/powerups/effects.js). true = the shield absorbed it (event emitted).
+  _absorb(snake) {
+    const r = absorbLethal(snake);
+    if (r === 'consumed') this.events.push({ e: 'shield', id: snake.playerId, x: snake.head.x, y: snake.head.y });
+    return r !== false;
+  }
+
+  // A snake would die here: held in place if a shield absorbs it, otherwise it dies.
+  _lethal(snake, killer, deaths, bounced) {
+    if (this._absorb(snake)) bounced.add(snake);
+    else deaths.set(snake, killer);
+  }
+
+  _pickup(snake, x, y) {
+    const item = this.specials.take(x, y);
+    if (!item) return;
+    if (collectSpecial(snake, item.type)) this.events.push({ e: 'pu', id: snake.playerId, k: item.type, x, y });
   }
 
   _creditKill(winner, loser) {
@@ -264,7 +325,7 @@ export class MatchSim {
   }
 
   _isCellBlocked(x, y) {
-    if (this.food.has(x, y)) return true;
+    if (this.food.has(x, y) || this.specials.has(x, y)) return true;
     for (const s of this.snakes) {
       if (!s.alive) continue;
       for (const c of s.body) {
@@ -376,11 +437,18 @@ export class MatchSim {
     return out;
   }
 
+  _flatSpecials() {
+    const out = [];
+    for (const i of this.specials.all()) out.push(i.x, i.y, POWERUP_INDEX[i.type]);
+    return out;
+  }
+
   // Remembers what the last broadcast contained; the next delta snapshot is
   // expressed relative to it.
   _commitBaseline() {
     this.prevBodies = new Map(this.snakes.map((s) => [s.playerId, this._flatBody(s)]));
     this.prevFood = new Set([...this.food.all()].map((f) => cellKey(f.x, f.y)));
+    this.prevSpecials = new Map([...this.specials.all()].map((i) => [cellKey(i.x, i.y), POWERUP_INDEX[i.type]]));
   }
 
   // full = true: complete state (match start, rejoin, resync request) - never
@@ -403,6 +471,8 @@ export class MatchSim {
           fz: s.frozen ? 1 : 0,
           q: s.lastSeq, // last input sequence number the server has processed for this player
         };
+        // Active power-up timers [speed, magnet, shield] in ticks; absent when none is active.
+        if (s.alive && (s.speedTicksLeft > 0 || s.magnetTicksLeft > 0 || s.shieldTicksLeft > 0)) out.e = [s.speedTicksLeft, s.magnetTicksLeft, s.shieldTicksLeft];
         if (s.alive) {
           // State the client needs to keep predicting this snake exactly like
           // the server would (turns already accepted but not yet moved on).
@@ -428,6 +498,7 @@ export class MatchSim {
     if (full) {
       snap.full = 1;
       snap.f = this._flatFood();
+      snap.sp = this._flatSpecials();
     } else {
       const now = new Map([...this.food.all()].map((f) => [cellKey(f.x, f.y), f]));
       const added = [];
@@ -441,6 +512,18 @@ export class MatchSim {
       }
       if (added.length) snap.fa = added;
       if (removed.length) snap.fr = removed;
+      const nowSp = new Map([...this.specials.all()].map((i) => [cellKey(i.x, i.y), i]));
+      const spAdded = [];
+      const spRemoved = [];
+      for (const [k, i] of nowSp) if (!this.prevSpecials.has(k)) spAdded.push(i.x, i.y, POWERUP_INDEX[i.type]);
+      for (const k of this.prevSpecials.keys()) {
+        if (!nowSp.has(k)) {
+          const [x, y] = k.split(',');
+          spRemoved.push(Number(x), Number(y));
+        }
+      }
+      if (spAdded.length) snap.spa = spAdded;
+      if (spRemoved.length) snap.spr = spRemoved;
       this._commitBaseline();
     }
     return snap;
@@ -454,6 +537,8 @@ export class MatchSim {
       score: s.score,
       length: s.length,
       kills: s.eliminations,
+      powerups: s.powerupsCollected,
+      mega: s.megaCollected,
       alive: s.alive,
       diedTick: s.alive ? Infinity : (s.diedTick ?? 0),
       joinIndex: s.joinIndex,
@@ -473,6 +558,8 @@ export class MatchSim {
       score: r.score,
       length: r.length,
       kills: r.kills,
+      powerups: r.powerups,
+      mega: r.mega,
       survived: r.alive,
     }));
   }

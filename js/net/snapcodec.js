@@ -6,6 +6,7 @@
 // and the new length. Food is sent as added/removed cells. Full state is
 // sent once when a match starts / a player rejoins, and on request ('sync').
 import { CONFIG, cellKey } from '../config.js';
+import { POWERUP_TYPES } from '../powerups/config.js';
 
 export const DIR_VECS = [
   CONFIG.DIRECTIONS.up,
@@ -52,12 +53,14 @@ export class SnapTracker {
   constructor() {
     this.bodies = new Map(); // player id -> flat cells (head first)
     this.food = new Map(); // "x,y" -> {x,y}
+    this.specials = new Map(); // "x,y" -> {x,y,type}: power-ups / mega food (server-owned)
     this.needsSync = false;
   }
 
   reset() {
     this.bodies.clear();
     this.food.clear();
+    this.specials.clear();
     this.needsSync = false;
   }
 
@@ -66,6 +69,7 @@ export class SnapTracker {
     if (snap.full) {
       this.bodies.clear();
       this.food.clear();
+      this.specials.clear();
     }
     for (const s of snap.snakes) {
       if (!s.a) {
@@ -88,6 +92,21 @@ export class SnapTracker {
       if (snap.fr) for (let i = 0; i < snap.fr.length; i += 2) this.food.delete(cellKey(snap.fr[i], snap.fr[i + 1]));
       if (snap.fa) for (let i = 0; i < snap.fa.length; i += 2) this.food.set(cellKey(snap.fa[i], snap.fa[i + 1]), { x: snap.fa[i], y: snap.fa[i + 1] });
     }
+    // Special items: full list on a full snapshot, else removed pairs + added triples [x, y, typeIndex].
+    if (snap.sp) {
+      this.specials.clear();
+      this._addSpecials(snap.sp);
+    } else {
+      if (snap.spr) for (let i = 0; i < snap.spr.length; i += 2) this.specials.delete(cellKey(snap.spr[i], snap.spr[i + 1]));
+      if (snap.spa) this._addSpecials(snap.spa);
+    }
     return this;
+  }
+
+  _addSpecials(list) {
+    for (let i = 0; i + 2 < list.length; i += 3) {
+      const type = POWERUP_TYPES[list[i + 2]];
+      if (type) this.specials.set(cellKey(list[i], list[i + 1]), { x: list[i], y: list[i + 1], type });
+    }
   }
 }

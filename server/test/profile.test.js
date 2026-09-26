@@ -56,7 +56,7 @@ test('default profile: valid, extensible shape, level 1, only default skins, not
   assert.equal(d.level, 1);
   assert.equal(d.xp, 0);
   assert.match(d.nickname, /^Snake\d{4}$/);
-  assert.deepEqual(Object.keys(d.stats).sort(), ['foodEaten', 'gamesPlayed', 'gamesWon', 'highestScore', 'kills', 'longestSnake', 'multiplayerGames', 'multiplayerWins', 'totalPlayTime']);
+  assert.deepEqual(Object.keys(d.stats).sort(), ['foodEaten', 'gamesPlayed', 'gamesWon', 'highestScore', 'kills', 'longestSnake', 'megaFoodCollected', 'multiplayerGames', 'multiplayerWins', 'powerupsCollected', 'totalPlayTime']);
   assert.ok(Object.values(d.stats).every((v) => v === 0));
   assert.deepEqual(d.unlockedSkins, ['classic']);
   assert.equal(d.selectedSkin, 'classic');
@@ -473,7 +473,7 @@ test('skin selection persists across a reload', () => {
 
 test('single-player result adapter: uses the game\'s own totals; play time is game time (ticks), so pauses do not count', () => {
   const r = fromSinglePlayer({ victory: true, score: 260, length: 18, eliminations: 3, foodEaten: 11, ticks: 400 }, 'run-9');
-  assert.deepEqual(r, { key: 'run-9', mode: 'single', victory: true, survived: true, score: 260, length: 18, kills: 3, food: 11, playSeconds: 60 });
+  assert.deepEqual(r, { key: 'run-9', mode: 'single', victory: true, survived: true, score: 260, length: 18, kills: 3, food: 11, powerups: undefined, mega: undefined, playSeconds: 60 });
   assert.equal(fromSinglePlayer(null, 'k'), null);
   assert.equal(fromSinglePlayer({}, ''), null);
 });
@@ -483,7 +483,7 @@ test('multiplayer result adapter: only the server\'s figures, only for a player 
     { id: 'p1', rank: 1, name: 'Ann', score: 330, length: 14, kills: 2, survived: true },
     { id: 'p2', rank: 2, name: 'Bob', score: 40, length: 9, kills: 0, survived: false },
   ] };
-  assert.deepEqual(fromMultiplayer(over, 'p1', 'm1', 75), { key: 'm1', mode: 'multiplayer', victory: true, survived: true, score: 330, length: 14, kills: 2, food: 13, playSeconds: 75 });
+  assert.deepEqual(fromMultiplayer(over, 'p1', 'm1', 75), { key: 'm1', mode: 'multiplayer', victory: true, survived: true, score: 330, length: 14, kills: 2, food: 13, powerups: undefined, mega: undefined, playSeconds: 75 });
   const loser = fromMultiplayer(over, 'p2', 'm1', 75);
   assert.equal(loser.victory, false);
   assert.equal(loser.food, 4);

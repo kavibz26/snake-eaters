@@ -49,7 +49,7 @@ export function generateDefaultNickname(random = Math.random) {
 
 // --- shape -----------------------------------------------------------------------------------------
 
-const STAT_KEYS = ['gamesPlayed', 'gamesWon', 'kills', 'foodEaten', 'highestScore', 'longestSnake', 'totalPlayTime', 'multiplayerGames', 'multiplayerWins'];
+const STAT_KEYS = ['gamesPlayed', 'gamesWon', 'kills', 'foodEaten', 'highestScore', 'longestSnake', 'totalPlayTime', 'multiplayerGames', 'multiplayerWins', 'powerupsCollected', 'megaFoodCollected'];
 
 const num = (v, max = MAX_STAT) => {
   const n = Math.floor(Number(v));

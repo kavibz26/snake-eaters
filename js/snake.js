@@ -1,4 +1,5 @@
 import { CONFIG, isOpposite } from './config.js';
+import { initEffects } from './powerups/effects.js';
 
 let nextSnakeId = 1;
 
@@ -21,6 +22,7 @@ export class Snake {
     this.eliminations = 0;
     this.score = 0;
     this.justAte = false; // set true for one tick after eating, for render feedback
+    initEffects(this); // power-up timers (speed / magnet / shield) and pickup counters
   }
 
   get length() {

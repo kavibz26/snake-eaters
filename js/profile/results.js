@@ -16,6 +16,8 @@ export function fromSinglePlayer(payload, key) {
     length: payload.length,
     kills: payload.eliminations,
     food: payload.foodEaten,
+    powerups: payload.powerups,
+    mega: payload.mega,
     playSeconds: Math.round(((payload.ticks || 0) * CONFIG.TICK_MS) / 1000), // game time: pauses are not counted
   };
 }
@@ -35,7 +37,9 @@ export function fromMultiplayer(over, myId, key, playSeconds) {
     score: me.score,
     length: me.length,
     kills: me.kills,
-    food: foodFromMultiplayerScore(me.score, me.kills),
+    food: foodFromMultiplayerScore(me.score, me.kills, me.mega), // Mega Food score is not "food eaten"
+    powerups: me.powerups,
+    mega: me.mega,
     playSeconds,
   };
 }

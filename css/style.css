@@ -1688,3 +1688,78 @@ body {
   padding: 10px 0 4px;
   background: linear-gradient(to bottom, rgba(21, 27, 35, 0), var(--panel) 32%);
 }
+
+/* ===== Power-ups: compact status chips (inside the action row, above Boost; reserved height so nothing shifts) ===== */
+.fx-hud {
+  flex: 0 0 100%;
+  min-height: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.fx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #10161d;
+  border: 1px solid var(--panel-border);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.35;
+  animation: fxIn 0.18s ease-out;
+}
+.fx-chip[data-type="speed"] { color: #ffe14d; border-color: rgba(255, 225, 77, 0.6); }
+.fx-chip[data-type="magnet"] { color: #ff8b8b; border-color: rgba(255, 107, 107, 0.6); }
+.fx-chip[data-type="shield"] { color: #8cc8ff; border-color: rgba(93, 179, 255, 0.7); }
+.fx-time { min-width: 2.4em; text-align: left; font-variant-numeric: tabular-nums; }
+.fx-time:empty { display: none; }
+@keyframes fxIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 400px) { .fx-label { display: none; } .fx-chip { padding: 2px 8px; } }
+@media (prefers-reduced-motion: reduce) { .fx-chip { animation: none; } }
+
+/* Short portrait phones (e.g. 320x568): the status row costs ~24px, so win the room back from padding and
+   gaps - the arena keeps the width it had before power-ups. Everything stays >= 44px. */
+@media (max-height: 620px) and (orientation: portrait) {
+  #gameScreen {
+    gap: 6px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+  #gameScreen .action-row { gap: 3px; }
+  #gameScreen .fx-hud { min-height: 20px; }
+  #gameScreen .btn-boost { padding-top: 10px; padding-bottom: 10px; }
+}
+
+/* While editing the nickname on a short phone the statistics step aside so the form never needs scrolling. */
+@media (max-height: 640px) and (orientation: portrait) {
+  #profileMain.is-editing .stat-grid { display: none; }
+}
+
+/* Landscape phones: the status chips stack in the Boost column (never widening it, so the arena keeps its size). */
+@media (orientation: landscape) and (max-height: 500px) {
+  #gameScreen .action-row { flex-direction: column; align-items: center; gap: 4px; }
+  #gameScreen .fx-hud { flex: 0 0 auto; flex-direction: column; flex-wrap: nowrap; gap: 3px; min-height: 24px; }
+  #gameScreen .fx-label { display: none; }
+}
+
+/* Desktop / tablets: plenty of width, so the chips sit beside the Boost button instead of costing arena height. */
+@media (min-width: 700px) and (min-height: 501px) {
+  #gameScreen .action-row { position: relative; flex-wrap: nowrap; }
+  #gameScreen .fx-hud {
+    position: absolute;
+    left: calc(50% + 110px);
+    top: 50%;
+    transform: translateY(-50%);
+    min-height: 0;
+    flex: none;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+}
