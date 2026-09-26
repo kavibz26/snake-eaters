@@ -142,16 +142,82 @@ test('migration: an unversioned (v0) profile is upgraded; a profile from a NEWER
   assert.equal(storage.getItem(STORAGE_KEY), future, 'the newer build\'s data is left untouched');
 });
 
-test('legacy import: an existing player keeps the skin and nickname they had', () => {
-  const { profile } = mk({ [LEGACY_SKIN_KEY]: 'golden', [LEGACY_NICK_KEY]: 'Veteran' });
+test('legacy import: an existing player keeps their skin, nickname AND every skin the old game offered', () => {
+  const { profile, storage } = mk({ [LEGACY_SKIN_KEY]: 'golden', [LEGACY_NICK_KEY]: 'Veteran' });
   assert.equal(profile.source, 'legacy-import');
   assert.equal(profile.nickname, 'Veteran');
-  assert.equal(profile.selectedSkin, 'golden', 'golden is level 7, but this player already had it selected');
-  assert.ok(profile.isSkinUnlocked('golden'));
-  assert.ok(!profile.isSkinUnlocked('jungle'), 'only the skin they were actually using is grandfathered');
+  assert.equal(profile.selectedSkin, 'golden', 'the selected skin is kept');
+  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)), 'all 8 skins were available before, so all 8 stay available');
+  assert.equal(profile.level, 1, 'their level is still 1 - the skins are not tied to it');
+  assert.equal(profile.xp, 0);
+  assert.equal(profile.recentUnlock(), null, 'no "NEW" badges for skins they already had');
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).legacySkinsChecked, true);
   const { profile: junk } = mk({ [LEGACY_SKIN_KEY]: 'not-a-skin', [LEGACY_NICK_KEY]: '<b>' });
   assert.equal(junk.selectedSkin, 'classic');
   assert.match(junk.nickname, /^Snake\d{4}$/);
+  assert.ok(SKINS.every((s) => junk.isSkinUnlocked(s.id)), 'an old install is recognised even if its stored skin id was odd');
+});
+
+test('legacy import: a nickname-only old install (multiplayer user) is also an existing player', () => {
+  const { profile } = mk({ [LEGACY_NICK_KEY]: 'OnlyNick' });
+  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)));
+  assert.equal(profile.selectedSkin, 'classic');
+});
+
+test('new players (no old-game data) use the level-based unlocks', () => {
+  const { profile } = mk();
+  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+  assert.equal(profile.data.legacySkinsChecked, true, 'nothing left to migrate, so a later stray old key cannot grant anything');
+});
+
+test('migration: a profile already created by the first progression build gets the old skins back, once, and keeps everything else', () => {
+  const stored = { version: 1, nickname: 'Early', xp: 260, level: 3, stats: { gamesPlayed: 5, kills: 2 }, unlockedSkins: ['classic', 'inferno', 'frost'], selectedSkin: 'frost', recentUnlock: { skinId: 'frost', at: 7 }, createdAt: 10, updatedAt: 20 };
+  const { profile, storage } = mk({ [STORAGE_KEY]: JSON.stringify(stored), [LEGACY_SKIN_KEY]: 'classic' });
+  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)), 'every previously available skin is available again');
+  assert.equal(profile.nickname, 'Early');
+  assert.equal(profile.xp, 260);
+  assert.equal(profile.level, 3);
+  assert.equal(profile.stats.gamesPlayed, 5);
+  assert.equal(profile.selectedSkin, 'frost', 'selection untouched');
+  assert.equal(profile.data.recentUnlock.skinId, 'frost', 'no fake "new unlock" for the restored skins');
+  const saved = JSON.parse(storage.getItem(STORAGE_KEY));
+  assert.equal(saved.legacySkinsChecked, true);
+  assert.equal(saved.unlockedSkins.length, SKINS.length, 'the grant was written back');
+  assert.deepEqual(saved.unlockedSkins.slice(0, 3), ['classic', 'inferno', 'frost'], 'existing entries keep their order');
+  // one-time: loading again changes nothing and writes nothing
+  const writes = storage.writes;
+  const again = new Profile({ storage, now: () => 1 });
+  assert.equal(storage.writes, writes, 'no rewrite on the next load');
+  assert.equal(again.data.unlockedSkins.length, SKINS.length);
+});
+
+test('migration: a first-build profile of a genuinely NEW player (no old-game keys) is not granted anything', () => {
+  const stored = { version: 1, nickname: 'Fresh', xp: 0, stats: {}, unlockedSkins: ['classic'], selectedSkin: 'classic', createdAt: 1, updatedAt: 1 };
+  const { profile, storage } = mk({ [STORAGE_KEY]: JSON.stringify(stored) });
+  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+  assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).legacySkinsChecked, true, 'decision recorded');
+  // an old-game key showing up later (e.g. another tab of the old site) must not unlock anything now
+  storage.setItem(LEGACY_SKIN_KEY, 'golden');
+  assert.deepEqual(SKINS.filter((s) => new Profile({ storage }).isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+});
+
+test('migration never removes an unlocked skin and never touches a profile from a newer build', () => {
+  const owned = { version: 1, xp: 0, unlockedSkins: ['classic', 'jungle', 'shadow'], selectedSkin: 'jungle', legacySkinsChecked: true };
+  const { profile } = mk({ [STORAGE_KEY]: JSON.stringify(owned), [LEGACY_SKIN_KEY]: 'classic' });
+  for (const id of ['classic', 'jungle', 'shadow']) assert.ok(profile.isSkinUnlocked(id), id + ' kept');
+  assert.equal(profile.isSkinUnlocked('frost'), false, 'already-checked profiles are not granted again');
+  assert.equal(profile.selectedSkin, 'jungle');
+
+  const future = JSON.stringify({ version: 2, nickname: 'Later', xp: 0, unlockedSkins: ['classic'] });
+  const { profile: fp, storage } = mk({ [STORAGE_KEY]: future, [LEGACY_SKIN_KEY]: 'classic' });
+  assert.equal(fp.isSkinUnlocked('golden'), false, 'read-only profile is not migrated');
+  assert.equal(storage.getItem(STORAGE_KEY), future, 'and not rewritten');
+});
+
+test('migration: an existing player whose new profile was corrupted still gets their old skins back', () => {
+  const { profile } = mk({ [STORAGE_KEY]: '{oops', [LEGACY_SKIN_KEY]: 'inferno' });
+  assert.equal(profile.source, 'recovered');
+  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)));
 });
 
 test('writes are coalesced: many changes schedule one save and nothing writes per call', () => {

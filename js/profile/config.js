@@ -66,8 +66,11 @@ export const SKIN_UNLOCK_LEVELS = {
   jungle: 12,
 };
 
-// Players who already had the game before profiles existed keep the skin they had selected.
-export const GRANDFATHER_SELECTED_SKIN = true;
+// Before profiles existed EVERY skin was available. A player who already had the game (recognised by
+// the old skin / nickname keys in localStorage) keeps all of them: their selected skin stays selected
+// and nothing is locked behind a level. New players use the level-based unlocks above. The grant is
+// one-way and happens once (recorded in the profile as `legacySkinsChecked`).
+export const GRANDFATHER_LEGACY_SKINS = true;
 
 // --- recent-unlock highlight ----------------------------------------------------------------------
 export const RECENT_UNLOCK_MS = 7 * 24 * 60 * 60 * 1000;

@@ -3,7 +3,7 @@
 // is wrapped so a missing / blocked / full localStorage can never crash the game.
 import {
   PROFILE_VERSION, STORAGE_KEY, LEGACY_SKIN_KEY, LEGACY_NICK_KEY, NICKNAME, MAX_LEVEL,
-  SKIN_UNLOCK_LEVELS, GRANDFATHER_SELECTED_SKIN,
+  SKIN_UNLOCK_LEVELS, GRANDFATHER_LEGACY_SKINS,
 } from './config.js';
 import { getLevelFromXP, getXPForLevel } from './xp.js';
 
@@ -60,7 +60,9 @@ export function createDefaultProfile({ now = Date.now(), random = Math.random, l
   const nick = validateNickname(legacy.nickname);
   const legacySkin = knownSkins.includes(legacy.skin) ? legacy.skin : null;
   const unlocked = new Set(Object.entries(SKIN_UNLOCK_LEVELS).filter(([, lvl]) => lvl <= 1).map(([id]) => id));
-  if (legacySkin && GRANDFATHER_SELECTED_SKIN) unlocked.add(legacySkin);
+  // An existing player (old skin / nickname key present) keeps every skin the old game offered.
+  const existingPlayer = Boolean(legacy.skin || legacy.nickname);
+  if (existingPlayer && GRANDFATHER_LEGACY_SKINS) for (const id of knownSkins) unlocked.add(id);
   return {
     version: PROFILE_VERSION,
     nickname: nick.ok ? nick.value : generateDefaultNickname(random),
@@ -70,9 +72,22 @@ export function createDefaultProfile({ now = Date.now(), random = Math.random, l
     unlockedSkins: [...unlocked],
     selectedSkin: legacySkin && unlocked.has(legacySkin) ? legacySkin : 'classic',
     recentUnlock: null, // { skinId, at } - the skin unlocked most recently, for the profile highlight
+    legacySkinsChecked: true, // a brand-new profile has nothing left to migrate
     createdAt: now,
     updatedAt: now,
   };
+}
+
+// One-way migration for a profile that predates the legacy-skin grant (or whose flag is missing):
+// if the old game's keys exist, every known skin is added to `unlockedSkins`. Nothing is ever removed,
+// the selection / XP / level are untouched, and the flag makes sure it runs once. -> true if changed.
+export function grantLegacySkins(profile, legacy, knownSkins = Object.keys(SKIN_UNLOCK_LEVELS)) {
+  if (profile.legacySkinsChecked) return false;
+  profile.legacySkinsChecked = true;
+  if (GRANDFATHER_LEGACY_SKINS && (legacy.skin || legacy.nickname)) {
+    for (const id of knownSkins) if (!profile.unlockedSkins.includes(id)) profile.unlockedSkins.push(id);
+  }
+  return true;
 }
 
 // Coerces ANY parsed value into a valid current-version profile: unknown fields are dropped,
@@ -111,6 +126,7 @@ export function sanitizeProfile(raw, ctx = {}) {
     unlockedSkins: [...unlocked],
     selectedSkin: selected,
     recentUnlock: recent,
+    legacySkinsChecked: raw.legacySkinsChecked === true,
     createdAt,
     updatedAt: num(raw.updatedAt, Number.MAX_SAFE_INTEGER) || now,
   };
@@ -154,9 +170,9 @@ export function loadProfile(storage = defaultStorage(), ctx = {}) {
   if (!storage) return { profile: createDefaultProfile({ now, random: ctx.random, knownSkins: ctx.knownSkins }), source: 'unavailable', readOnly: true };
   let text = null;
   try { text = storage.getItem(STORAGE_KEY); } catch { return { profile: createDefaultProfile({ now, random: ctx.random, knownSkins: ctx.knownSkins }), source: 'unavailable', readOnly: true }; }
+  const legacy = readLegacy(storage);
 
   if (text == null) {
-    const legacy = readLegacy(storage);
     const fresh = createDefaultProfile({ now, random: ctx.random, legacy, knownSkins: ctx.knownSkins });
     return { profile: fresh, source: legacy.skin || legacy.nickname ? 'legacy-import' : 'new', readOnly: false };
   }
@@ -164,13 +180,16 @@ export function loadProfile(storage = defaultStorage(), ctx = {}) {
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { profile: createDefaultProfile({ now, random: ctx.random, knownSkins: ctx.knownSkins }), source: 'recovered', readOnly: false, corruptText: text };
+    return { profile: createDefaultProfile({ now, random: ctx.random, legacy, knownSkins: ctx.knownSkins }), source: 'recovered', readOnly: false, corruptText: text };
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { profile: createDefaultProfile({ now, random: ctx.random, knownSkins: ctx.knownSkins }), source: 'recovered', readOnly: false, corruptText: text };
+    return { profile: createDefaultProfile({ now, random: ctx.random, legacy, knownSkins: ctx.knownSkins }), source: 'recovered', readOnly: false, corruptText: text };
   }
   const { data, future } = migrateProfile(parsed);
-  return { profile: sanitizeProfile(data, ctx), source: 'stored', readOnly: future };
+  const profile = sanitizeProfile(data, ctx);
+  // A profile written by a newer build is read as-is and never modified.
+  const migrated = future ? false : grantLegacySkins(profile, legacy, ctx.knownSkins);
+  return { profile, source: 'stored', readOnly: future, migrated };
 }
 
 export function saveProfile(storage, profile) {

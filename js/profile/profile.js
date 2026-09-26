@@ -33,7 +33,7 @@ export class Profile {
     if (loaded.source === 'recovered' && storage) {
       try { storage.setItem(`${STORAGE_KEY}.corrupt`, loaded.corruptText); } catch { /* best effort */ }
     }
-    if (loaded.source !== 'stored' && !this.readOnly) this._save(); // first run / recovery: write a clean profile once
+    if ((loaded.source !== 'stored' || loaded.migrated) && !this.readOnly) this._save(); // first run / recovery / one-time migration: write once
   }
 
   // --- events ('change' | 'levelup') -------------------------------------------------------------------
