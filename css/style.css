@@ -1395,3 +1395,296 @@ body {
 /* Touch targets: in-game HUD buttons and Boost never drop below 44px, in any orientation. */
 #gameScreen .hud .btn-ghost { min-width: 44px; min-height: 44px; }
 #gameScreen .btn-boost { min-height: 44px; }
+
+/* ===== Profile + progression ============================================================================ */
+
+.xp-bar {
+  display: block;
+  height: 12px;
+  background: #0f151c;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.xp-bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent), #5db3ff);
+  border-radius: inherit;
+  transition: width 0.5s ease-out;
+}
+.xp-bar--sm { height: 8px; }
+
+/* main-menu card */
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 380px;
+  min-height: 64px;
+  margin: 0 auto 14px;
+  padding: 10px 12px;
+  background: #1c242e;
+  border: 1px solid #2a5566;
+  border-radius: 12px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.profile-card:hover { border-color: var(--accent); }
+.profile-card:active { transform: scale(0.98); }
+.profile-card:focus-visible, .skin-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profile-card-avatar {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #0a0d12;
+  border: 1px solid var(--panel-border);
+}
+.profile-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.profile-card-label { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+.profile-card-name { font-size: 1.02rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-card-level { display: flex; justify-content: space-between; gap: 8px; font-size: 0.75rem; color: var(--text-dim); }
+.profile-card-level b { color: var(--accent); }
+.profile-card-chev { font-size: 1.7rem; line-height: 1; color: var(--text-dim); }
+
+/* profile screen */
+.profile-panel { max-width: 440px; padding: 20px 18px 10px; }
+.profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; text-align: left; }
+.profile-avatar {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #0a0d12;
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.profile-id { min-width: 0; }
+.profile-name { margin: 0; font-size: 1.6rem; font-weight: 800; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-level { color: var(--text-dim); font-weight: 700; }
+.profile-level b { color: var(--accent); font-size: 1.25rem; }
+.xp-caption { display: flex; justify-content: space-between; gap: 8px; margin: 6px 2px 12px; font-size: 0.75rem; color: var(--text-dim); }
+.stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.stat-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: #1c242e;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+}
+.stat-cell b { font-size: 1.1rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat-cell span { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+.profile-skin-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #1c242e;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  text-align: left;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+.profile-skin-text strong { display: block; color: var(--text); font-size: 0.95rem; }
+.profile-recent { display: block; margin-top: 2px; color: var(--accent); font-weight: 700; }
+.profile-actions { display: flex; gap: 10px; margin-top: 12px; }
+.profile-actions .btn { flex: 1; min-height: 48px; padding: 12px 8px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.95rem; }
+.profile-name-form { margin-top: 12px; text-align: left; }
+.profile-name-form .section-label { display: block; margin-bottom: 6px; }
+.profile-name-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.profile-name-row .text-input { flex: 1 1 100%; }
+.profile-name-row .btn { flex: 1 1 0; min-height: 48px; padding: 12px 8px; }
+.profile-name-form .mp-status { min-height: 1.3em; margin: 6px 0 0; }
+#profileSkins .mp-status { margin: 0 0 4px; }
+#profileSkinGrid { margin-top: 12px; }
+
+/* skins: locked state */
+.skin-card { position: relative; }
+.skin-card.locked { border-style: dashed; opacity: 0.85; }
+.skin-card.locked .skin-preview { filter: grayscale(1) brightness(0.45); }
+.skin-card.locked .skin-card-name { color: var(--text-dim); }
+.skin-lock { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.02em; color: #ffcf4d; }
+.skin-lock:empty { display: none; }
+.skin-card.is-new { border-color: var(--accent); }
+.skin-card.is-new .skin-lock { color: var(--accent); }
+
+.profile-toast {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(92vw, 420px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: rgba(10, 13, 18, 0.96);
+  border: 1px solid #2a5566;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+  animation: toastIn 0.2s ease-out;
+}
+
+/* live XP feed (over the arena; never intercepts touches) */
+.xp-feed {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3px 14px;
+  border-radius: 999px;
+  background: rgba(10, 13, 18, 0.88);
+  border: 1px solid rgba(62, 224, 138, 0.45);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.xp-feed--in { animation: xpPop 0.25s ease-out; }
+.xp-feed-xp { color: var(--accent); font-weight: 800; font-size: 0.95rem; line-height: 1.2; }
+.xp-feed-what { font-size: 0.62rem; color: var(--text-dim); line-height: 1.2; }
+@keyframes xpPop { from { opacity: 0.2; transform: translateX(-50%) translateY(6px) scale(0.9); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
+
+/* "XP earned" breakdown on result screens */
+.rewards {
+  margin: 14px 0 16px;
+  padding: 12px 14px;
+  background: #1c242e;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  text-align: left;
+}
+.rewards-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.rewards-title { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); }
+.rewards-total { font-size: 1.5rem; color: var(--accent); }
+.rewards-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 0.85rem; }
+.rewards-list li { display: flex; justify-content: space-between; gap: 10px; color: var(--text-dim); }
+.rewards-list li b { color: var(--text); }
+.rewards-empty { margin: 0; font-size: 0.82rem; color: var(--text-dim); }
+.rewards-badge { display: inline-block; margin-bottom: 8px; padding: 3px 10px; border-radius: 999px; background: rgba(255, 207, 77, 0.14); color: #ffcf4d; font-size: 0.75rem; font-weight: 800; }
+.rewards-level { display: flex; align-items: center; gap: 10px; }
+.rewards-level .xp-bar { flex: 1; }
+.rewards-level-label { font-size: 0.8rem; font-weight: 800; color: var(--accent); white-space: nowrap; }
+
+/* level up */
+.levelup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  background: rgba(4, 6, 9, 0.78);
+  overflow-y: auto;
+}
+.levelup-card {
+  width: 100%;
+  max-width: 340px;
+  margin: auto;
+  padding: 22px 20px 18px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid #ffcf4d;
+  border-radius: var(--radius);
+  box-shadow: 0 0 40px rgba(255, 207, 77, 0.25), 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.levelup-card--in { animation: levelPop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.levelup-card .levelup-ok { margin-top: 14px; min-height: 48px; min-width: 140px; }
+.levelup-title { font-size: 1.05rem; font-weight: 800; letter-spacing: 0.18em; color: #ffcf4d; }
+.levelup-number { font-size: 4.2rem; font-weight: 800; line-height: 1.05; color: #fff; text-shadow: 0 0 24px rgba(255, 207, 77, 0.55); }
+.levelup-sub { font-size: 0.85rem; font-weight: 700; color: var(--text-dim); }
+.levelup-unlock { margin-top: 10px; font-size: 0.9rem; font-weight: 700; color: var(--accent); }
+.levelup-skins { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
+.levelup-skin { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.levelup-skin-preview { width: 84px; height: 60px; border-radius: 8px; }
+.levelup-skin-name { font-size: 0.75rem; font-weight: 700; }
+.levelup-banner {
+  margin-top: 10px;
+  padding: 10px 12px;
+  text-align: center;
+  background: #10161d;
+  border: 1px solid #ffcf4d;
+  border-radius: 12px;
+  animation: levelPop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.levelup-banner .levelup-number { font-size: 2.6rem; }
+@keyframes levelPop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
+
+@media (max-width: 400px) {
+  .profile-panel { padding: 16px 12px 6px; }
+  .profile-avatar { width: 60px; height: 60px; }
+  .profile-name { font-size: 1.35rem; }
+  .profile-head { margin-bottom: 8px; }
+  .stat-grid { gap: 6px; margin-bottom: 8px; }
+  .stat-cell { padding: 6px 2px; }
+  .stat-cell b { font-size: 1rem; }
+  .xp-caption { margin-bottom: 8px; }
+  .profile-actions { margin-top: 8px; }
+  .levelup-number { font-size: 3.6rem; }
+}
+
+/* Short landscape phones: identity + bar on the left, statistics on the right, no scrolling. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #profileScreen .profile-panel { max-width: 760px; padding: 12px 16px 6px; }
+  #profileMain {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-areas: "head stats" "bar stats" "cap stats" "skin stats" "act back";
+    column-gap: 16px;
+    align-items: start;
+  }
+  #profileMain > .profile-head { grid-area: head; margin-bottom: 4px; }
+  #profileMain > .xp-bar { grid-area: bar; }
+  #profileMain > .xp-caption { grid-area: cap; margin-bottom: 6px; }
+  #profileMain > .stat-grid { grid-area: stats; margin: 0; }
+  #profileMain > .profile-skin-line { grid-area: skin; padding: 4px 10px; }
+  #profileMain > .profile-actions, #profileMain > .profile-name-form { grid-area: act; margin-top: 6px; }
+  #profileMain > .btn-link { grid-area: back; justify-self: end; align-self: end; }
+  #profileMain .profile-avatar { width: 52px; height: 52px; }
+  #profileMain .profile-name { font-size: 1.3rem; }
+  #profileMain .mp-skin-preview { width: 56px; height: 40px; }
+  .levelup-number { font-size: 3rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .xp-bar > i { transition: none; }
+  .xp-feed--in, .levelup-card--in, .levelup-banner { animation: none; }
+}
+
+#profileMain.is-editing .profile-skin-line { display: none; }
+
+/* Compact, non-blocking level-up card on the multiplayer results screen. */
+.levelup-banner .levelup-title, .levelup-banner .levelup-number { display: inline-block; vertical-align: middle; margin: 0 6px; }
+.levelup-banner .levelup-title { font-size: 0.95rem; }
+.levelup-banner .levelup-number { font-size: 2rem; }
+.levelup-banner .levelup-unlock { margin-top: 4px; font-size: 0.82rem; }
+.levelup-banner .levelup-skin-preview { width: 56px; height: 40px; }
+.levelup-banner .levelup-skins { margin-top: 4px; gap: 8px; }
+
+/* Results actions stay reachable when a long results list scrolls. */
+#mpResultsScreen .result-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: 10px 0 4px;
+  background: linear-gradient(to bottom, rgba(21, 27, 35, 0), var(--panel) 32%);
+}

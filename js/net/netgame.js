@@ -42,6 +42,8 @@ export class NetGame extends Game {
     this.onBanner = null; // (text | null) => void, drives the overlay in the arena
     this.onPauseRequest = null; // pause button => "leave match?" prompt
     this.onBoard = null; // (rows) => void, live leaderboard (order computed by the server)
+    this.onPlayerEvent = null; // ('food' | 'kill') => void, for the provisional XP feedback (real XP comes from the final result)
+    this._feedTick = -1; // last tick whose events fed onPlayerEvent: a repeated snapshot must not repeat feedback
     this._lastBanner = undefined;
     this._showGo = false; // true only for a fresh match start (not when resuming after a reconnect)
     this._lastSync = 0;
@@ -89,7 +91,10 @@ export class NetGame extends Game {
     }
     this.snakes = [...this.views.values()];
     this.particles = [];
-    if (!msg.resumed) this.seq = 0; // new match: the server restarts acks at 0
+    if (!msg.resumed) {
+      this.seq = 0; // new match: the server restarts acks at 0
+      this._feedTick = -1;
+    }
     this.tracker.reset();
     this.food.items = this.tracker.food;
     this.predictor.reset();
@@ -235,6 +240,13 @@ export class NetGame extends Game {
     this._applyViews(snap, now);
     this._alive = snap.snakes.filter((s) => s.a === 1).length;
     this._handleEvents(snap.ev || []);
+    if (this.onPlayerEvent && snap.tick > this._feedTick) {
+      this._feedTick = snap.tick;
+      for (const ev of snap.ev || []) {
+        if (ev.e === 'eat' && ev.id === this.myId) this.onPlayerEvent('food');
+        else if (ev.e === 'kill' && ev.killer === this.myId) this.onPlayerEvent('kill');
+      }
+    }
     this._updateHud();
     this._publishBoard(snap);
   }

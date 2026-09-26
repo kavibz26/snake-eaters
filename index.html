@@ -33,6 +33,17 @@
 
       <p class="combat-rule"><span class="rule-win">Bigger eats smaller.</span> Touch any part of a smaller snake to eliminate it - touch a <span class="rule-lose">bigger</span> one and it eliminates you.</p>
 
+      <button id="profileCard" class="profile-card" type="button" aria-label="Open your profile">
+        <img class="profile-card-avatar" src="assets/profile.webp" alt="">
+        <span class="profile-card-main">
+          <span class="profile-card-label">Profile</span>
+          <span class="profile-card-name" id="cardName"></span>
+          <span class="profile-card-level"><b id="cardLevel">Level 1</b><span id="cardXp"></span></span>
+          <span class="xp-bar xp-bar--sm"><i id="cardFill"></i></span>
+        </span>
+        <span class="profile-card-chev" aria-hidden="true">&rsaquo;</span>
+      </button>
+
       <button id="playBtn" class="btn btn-primary btn-play">Play Now</button>
       <button id="multiplayerBtn" class="btn btn-secondary btn-mp"><span aria-hidden="true">🌐</span> Multiplayer</button>
 
@@ -95,6 +106,7 @@
       </div>
       <div id="mpBanner" class="mp-banner hidden" role="status" aria-live="polite"></div>
       <div id="mpToast" class="mp-toast hidden" role="status" aria-live="polite"></div>
+      <div id="xpFeed" class="xp-feed hidden" aria-hidden="true"></div>
       <div id="mpLeaveOverlay" class="overlay hidden">
         <div class="overlay-card">
           <div class="overlay-text overlay-text--sm">Leave match?</div>
@@ -136,7 +148,11 @@
         <div class="final-stat"><span class="hud-label">Snake Size</span><span id="finalLength" class="final-value">0</span></div>
         <div class="final-stat"><span class="hud-label">Eliminations</span><span id="finalEliminations" class="final-value">0</span></div>
       </div>
-      <button id="restartBtn" class="btn btn-primary">Play Again</button>
+      <div id="spRewards" class="rewards hidden"></div>
+      <div class="mp-actions result-actions">
+        <button id="restartBtn" class="btn btn-primary">Play Again</button>
+        <button id="gameOverMenuBtn" class="btn btn-secondary">Main Menu</button>
+      </div>
     </div>
   </section>
 
@@ -190,12 +206,63 @@
       <span class="mp-conn hidden" id="resultsConn" role="status"><span class="mp-conn-dot"></span><span class="mp-conn-text"></span></span>
       <p id="mpResultSub" class="mp-status"></p>
       <ol id="standings" class="player-list"></ol>
+      <div id="mpRewards" class="rewards hidden"></div>
       <p id="mpResultHint" class="mp-status">Pick a lobby to play again.</p>
       <div class="mp-actions result-actions">
         <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobbies</button>
       </div>
     </div>
   </section>
+
+  <!-- Profile: identity, level, statistics, skins -->
+  <section id="profileScreen" class="screen hidden">
+    <div class="panel profile-panel">
+      <div id="profileMain" class="profile-view">
+        <div class="profile-head">
+          <img class="profile-avatar" src="assets/profile.webp" alt="Snake Eaters">
+          <div class="profile-id">
+            <h2 id="profileName" class="profile-name"></h2>
+            <div class="profile-level">Level <b id="profileLevel">1</b></div>
+          </div>
+        </div>
+        <div class="xp-bar" role="progressbar" aria-label="Level progress"><i id="profileXpFill"></i></div>
+        <div class="xp-caption"><span id="profileXpText"></span><span id="profileXpNext"></span></div>
+        <div id="profileStats" class="stat-grid"></div>
+        <div class="profile-skin-line">
+          <canvas id="profileSkinPreview" class="mp-skin-preview" width="84" height="60"></canvas>
+          <span class="profile-skin-text">Current snake<br><strong id="profileSkinName"></strong><small id="profileRecent" class="profile-recent hidden"></small></span>
+        </div>
+        <div id="profileActions" class="profile-actions">
+          <button id="profileSkinsBtn" class="btn btn-secondary" type="button">Skins</button>
+          <button id="profileEditBtn" class="btn btn-secondary" type="button">Edit name</button>
+        </div>
+        <form id="profileNameForm" class="profile-name-form hidden" autocomplete="off">
+          <label class="section-label" for="profileNameInput">Nickname</label>
+          <div class="profile-name-row">
+            <input id="profileNameInput" class="text-input" type="text" maxlength="14" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Nickname">
+            <button class="btn btn-primary" type="submit">Save</button>
+            <button id="profileNameCancel" class="btn btn-secondary" type="button">Cancel</button>
+          </div>
+          <p id="profileNameError" class="mp-status error" role="alert"></p>
+        </form>
+        <button id="profileBackBtn" class="btn btn-link" type="button">&larr; Back</button>
+      </div>
+      <div id="profileSkins" class="profile-view hidden">
+        <h2 class="title title-sm">Skins</h2>
+        <p class="mp-status">Level up to unlock more snakes.</p>
+        <div id="profileSkinGrid" class="skin-picker"></div>
+        <button id="profileSkinsBack" class="btn btn-link" type="button">&larr; Back to profile</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="levelUpOverlay" class="levelup-overlay hidden" role="dialog" aria-modal="true" aria-label="Level up">
+    <div class="levelup-card">
+      <div class="levelup-content"></div>
+      <button class="btn btn-primary levelup-ok" type="button">OK</button>
+    </div>
+  </div>
+  <div id="profileToast" class="profile-toast hidden" role="status" aria-live="polite"></div>
 
   <script type="module" src="js/main.js"></script>
 </body>

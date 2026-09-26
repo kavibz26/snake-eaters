@@ -10,7 +10,6 @@ import { renderSkinPreview } from '../snakeRender.js';
 import { createChat } from './chat.js';
 import { createBoard } from './board.js';
 
-const NICK_KEY = 'snakeEatersNick';
 
 // Connection-quality thresholds. They apply to the MEDIAN of the last few real pings and only
 // once enough samples exist, so one noisy measurement can never flag a connection as bad.
@@ -44,7 +43,9 @@ function friendly(err) {
   return FRIENDLY[err && err.code] || (err && err.message) || 'Something went wrong. Please try again.';
 }
 
-export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate, deactivate, setYouBadge }) {
+// `progress` connects multiplayer to the player's profile (see js/main.js):
+//   nickname() / setNickname(raw) -> the profile's validated name; onMatchStart(msg); onMatchOver(msg, myId).
+export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate, deactivate, setYouBadge, progress }) {
   const $ = (id) => document.getElementById(id);
   const el = {
     openBtn: $('multiplayerBtn'),
@@ -125,11 +126,6 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     node.classList.toggle('ok', kind === 'ok');
   }
 
-  function cleanNick(raw) {
-    const nick = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 14);
-    return nick || 'Player';
-  }
-
   function miniSkin(skinId, w = 56, h = 40) {
     const canvas = document.createElement('canvas');
     canvas.width = 84;
@@ -180,7 +176,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
   // --- lobby browser ---------------------------------------------------------------------------------------
 
   function openBrowser(message, kind) {
-    try { el.nick.value = localStorage.getItem(NICK_KEY) || ''; } catch { /* storage unavailable */ }
+    el.nick.value = progress.nickname();
     const skin = getSelectedSkin();
     renderSkinPreview(el.skinPreview, skin);
     el.skinName.textContent = `${skin.emoji} ${skin.name}`;
@@ -283,8 +279,14 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
 
   async function joinLobby(id) {
     if (joining) return; // double-click / double-tap safe: the flag is set before anything async
-    const nick = cleanNick(el.nick.value);
-    try { localStorage.setItem(NICK_KEY, nick); } catch { /* ignore */ }
+    const check = progress.setNickname(el.nick.value);
+    if (!check.ok) {
+      setStatus(el.browserStatus, check.error, 'error');
+      el.nick.focus();
+      return;
+    }
+    const nick = check.value;
+    el.nick.value = nick;
     setJoining(true, id);
     setStatus(el.browserStatus, 'Joining...');
     try {
@@ -539,6 +541,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     const me = msg.players.find((p) => p.id === msg.you);
     if (me) setYouBadge(getSkinById(me.skinId));
     netGame.setConnectionText(null);
+    progress.onMatchStart(msg);
     netGame.beginMatch(msg);
     el.leaveOverlay.classList.add('hidden');
     startMatchUi();
@@ -552,6 +555,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     netGame.finish();
     stopMatchUi();
     showResults(msg);
+    progress.onMatchOver(msg, netGame.myId); // rewards from the server's results, applied once
   });
 
   net.on('error', (err) => {

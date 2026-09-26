@@ -1,10 +1,13 @@
 import { Game } from './game.js';
 import { Hud } from './hud.js';
 import { InputManager } from './input.js';
-import { SKINS, loadSavedSkin, saveSkin } from './skins.js';
-import { renderSkinPreview } from './snakeRender.js';
+import { getSkinById } from './skins.js';
 import { NetGame } from './net/netgame.js';
 import { initMultiplayer } from './net/mpui.js';
+import { getProfile } from './profile/profile.js';
+import { initProfileUI } from './profile/ui.js';
+import { createXpFeed, renderRewards, createLevelUpModal } from './profile/feedback.js';
+import { fromSinglePlayer, fromMultiplayer } from './profile/results.js';
 
 const screens = {
   start: document.getElementById('startScreen'),
@@ -13,6 +16,7 @@ const screens = {
   browser: document.getElementById('lobbyBrowserScreen'),
   lobby: document.getElementById('lobbyScreen'),
   mpResults: document.getElementById('mpResultsScreen'),
+  profile: document.getElementById('profileScreen'),
 };
 
 function showScreen(name) {
@@ -24,7 +28,6 @@ function showScreen(name) {
 const canvas = document.getElementById('gameCanvas');
 const dpad = document.getElementById('dpad');
 const pausedOverlay = document.getElementById('pausedOverlay');
-const skinPicker = document.getElementById('skinPicker');
 const youBadge = document.querySelector('.you-badge');
 const youDot = document.querySelector('.you-dot');
 
@@ -42,9 +45,19 @@ const game = new Game(canvas, hud);
 const netGame = new NetGame(canvas, hud);
 let active = game;
 
+// --- profile + progression -------------------------------------------------------------------------
+
+const profile = getProfile();
+const xpFeed = createXpFeed(document.getElementById('xpFeed'));
+const levelUpModal = createLevelUpModal(document.getElementById('levelUpOverlay'));
+
+// Persist on the way out (writes are otherwise debounced and never happen per frame).
+window.addEventListener('pagehide', () => profile.flush());
+document.addEventListener('visibilitychange', () => { if (document.hidden) profile.flush(); });
+
 // --- skin selection ---------------------------------------------------
 
-let selectedSkin = loadSavedSkin();
+let selectedSkin = getSkinById(profile.selectedSkin);
 
 function setYouBadge(skin) {
   youBadge.textContent = '';
@@ -57,40 +70,17 @@ function setYouBadge(skin) {
   youDot.style.boxShadow = `0 0 8px ${skin.ui}`;
 }
 
+// Only skins the player has unlocked can be applied; the profile refuses the rest.
 function applySkin(skin) {
+  if (!profile.selectSkin(skin.id)) return;
   selectedSkin = skin;
-  saveSkin(skin.id);
   game.setPlayerSkin(skin);
   setYouBadge(skin);
-  skinPicker.querySelectorAll('.skin-card').forEach((btn) => {
-    btn.classList.toggle('selected', btn.dataset.skinId === skin.id);
-  });
 }
 
-for (const skin of SKINS) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'skin-card';
-  btn.dataset.skinId = skin.id;
-  btn.title = skin.name;
-  btn.setAttribute('aria-label', skin.name);
-
-  const preview = document.createElement('canvas');
-  preview.className = 'skin-preview';
-  preview.width = 140;
-  preview.height = 100;
-  renderSkinPreview(preview, skin);
-
-  const label = document.createElement('span');
-  label.className = 'skin-card-name';
-  label.textContent = `${skin.emoji} ${skin.name}`;
-
-  btn.appendChild(preview);
-  btn.appendChild(label);
-  btn.addEventListener('click', () => applySkin(skin));
-  skinPicker.appendChild(btn);
-}
-applySkin(selectedSkin);
+initProfileUI({ profile, showScreen, applySkin });
+game.setPlayerSkin(selectedSkin);
+setYouBadge(selectedSkin);
 
 // --- controls -----------------------------------------------------------
 
@@ -119,27 +109,79 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden && active === game && game.state === 'playing') togglePause();
 });
 
+// --- single player: run lifecycle + rewards --------------------------------------------------------------
+// Each run gets a key; its result is turned into XP once (the key is cleared as it is consumed,
+// and the profile also ignores a key it has already seen).
+let runKey = null;
+let runCounter = 0;
+
+game.onPlayerEvent = (kind) => xpFeed.event(kind);
+
 game.onGameOver = (result) => {
   document.getElementById('gameOverTitle').textContent = result.victory ? 'Victory!' : 'Game Over';
   document.getElementById('finalScore').textContent = result.score;
   document.getElementById('finalLength').textContent = result.length;
   document.getElementById('finalEliminations').textContent = result.eliminations;
+  xpFeed.clear();
+
+  const key = runKey;
+  runKey = null;
+  const summary = key ? profile.applyMatchResult(fromSinglePlayer(result, key)) : null;
+  if (key) renderRewards(document.getElementById('spRewards'), summary); // a repeated callback leaves the panel as it is
   showScreen('gameover');
+  // A single-player run is over, so a blocking level-up dialog cannot interrupt anything.
+  if (summary && summary.xp) levelUpModal.show(summary.xp);
 };
 
 function beginRun() {
+  levelUpModal.close(); // e.g. R pressed while the level-up dialog is still up
   active = game;
   pausedOverlay.classList.add('hidden');
   game.setPlayerSkin(selectedSkin);
   setYouBadge(selectedSkin);
+  runKey = `sp:${++runCounter}:${Date.now()}`;
+  xpFeed.reset('single');
+  document.getElementById('spRewards').classList.add('hidden');
   showScreen('game');
   game.restart();
 }
 
 document.getElementById('playBtn').addEventListener('click', beginRun);
 document.getElementById('restartBtn').addEventListener('click', beginRun);
+document.getElementById('gameOverMenuBtn').addEventListener('click', () => { levelUpModal.close(); showScreen('start'); });
 document.getElementById('pauseBtn').addEventListener('click', () => (active === game ? togglePause() : netGame.togglePause()));
 document.getElementById('boostBtn').addEventListener('click', triggerBoost);
+
+// --- multiplayer <-> profile ---------------------------------------------------------------------------------
+// The client never reports anything. Rewards are computed from the server's own `over` message, for a
+// match this client actually saw start, exactly once (a reconnect resumes the SAME match key).
+let mpKey = null;
+let mpStartedAt = 0;
+let mpCounter = 0;
+netGame.onPlayerEvent = (kind) => xpFeed.event(kind);
+
+const progress = {
+  nickname: () => profile.nickname,
+  setNickname: (raw) => profile.setNickname(raw),
+  onMatchStart(msg) {
+    if (msg.resumed && mpKey) return; // reconnected into the same match: same key, same start time
+    mpKey = `mp:${++mpCounter}:${Date.now()}`;
+    mpStartedAt = performance.now() + (msg.startsInMs || 0);
+    xpFeed.reset('multiplayer');
+    renderRewards(document.getElementById('mpRewards'), null); // hide the previous match's rewards
+  },
+  onMatchOver(msg, myId) {
+    xpFeed.clear();
+    const key = mpKey;
+    mpKey = null; // consumed: a second `over` for the same match cannot pay out again
+    if (!key) return; // duplicate / unknown match: nothing to reward and the shown rewards stay untouched
+    const seconds = Math.max(0, Math.round((performance.now() - mpStartedAt) / 1000));
+    const result = fromMultiplayer(msg, myId, key, seconds);
+    const summary = result ? profile.applyMatchResult(result) : null;
+    // Multiplayer never shows a blocking dialog: the level-up is an inline, non-blocking card.
+    renderRewards(document.getElementById('mpRewards'), summary, { inlineLevelUp: true });
+  },
+};
 
 initMultiplayer({
   showScreen,
@@ -153,6 +195,7 @@ initMultiplayer({
     active = game;
   },
   setYouBadge,
+  progress,
 });
 
 showScreen('start');

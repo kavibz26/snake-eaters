@@ -18,7 +18,8 @@ export class Game {
     this.lastTs = 0;
     this.accumulator = 0;
     this.particles = [];
-    this.onGameOver = null; // callback({ victory, score, length, eliminations, remaining })
+    this.onGameOver = null; // callback({ victory, score, length, eliminations, foodEaten, ticks })
+    this.onPlayerEvent = null; // callback('food' | 'kill'): the player just ate / eliminated someone (progression feedback)
     this.playerSkin = getSkinById(DEFAULT_SKIN_ID); // overridable via setPlayerSkin() for skins
 
     this._loop = this._loop.bind(this);
@@ -173,6 +174,7 @@ export class Game {
         player.justAte = true;
         this.food.removeAt(nh.x, nh.y);
         this._spawnEatParticles(nh);
+        if (this.onPlayerEvent) this.onPlayerEvent('food');
       }
       player.commitMove(nh);
 
@@ -217,7 +219,10 @@ export class Game {
         this.food.removeAt(nh.x, nh.y);
         // Visible feedback for the player's own progression only - the same
         // burst for every AI snack would just be noise.
-        if (snake.isPlayer) this._spawnEatParticles(nh);
+        if (snake.isPlayer) {
+          this._spawnEatParticles(nh);
+          if (this.onPlayerEvent) this.onPlayerEvent('food');
+        }
       }
     }
 
@@ -348,6 +353,7 @@ export class Game {
     winner.eliminations += 1;
     winner.score += CONFIG.KILL_SCORE;
     winner.justAte = true;
+    if (winner.isPlayer && this.onPlayerEvent) this.onPlayerEvent('kill');
   }
 
   _isCellBlocked(x, y) {
@@ -372,6 +378,8 @@ export class Game {
         score: player.score,
         length: player.length,
         eliminations: player.eliminations,
+        foodEaten: player.foodEaten,
+        ticks: this.tickCount,
       });
     }
   }
