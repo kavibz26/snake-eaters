@@ -4,6 +4,7 @@ import { SKINS } from '../skins.js';
 import { STORAGE_KEY, SKIN_UNLOCK_LEVELS, REWARDS, SAVE_DEBOUNCE_MS, RECENT_UNLOCK_MS, MAX_LEVEL } from './config.js';
 import { getLevelFromXP, getXPForLevel, getXPIntoCurrentLevel, getXPRequiredForNextLevel, getLevelProgress } from './xp.js';
 import { computeMatchRewards } from './rewards.js';
+import { isEventId } from '../events/config.js';
 import { loadProfile, saveProfile, defaultStorage, validateNickname } from './store.js';
 
 const KNOWN_SKINS = SKINS.map((s) => s.id);
@@ -182,6 +183,7 @@ export class Profile {
       food: int(result.food),
       powerups: int(result.powerups),
       mega: int(result.mega),
+      events: Array.isArray(result.events) ? [...new Set(result.events.filter(isEventId))] : [],
       playSeconds: int(result.playSeconds, MAX_PLAY_SECONDS),
     };
     const s = this.data.stats;
@@ -198,6 +200,9 @@ export class Profile {
     s.totalPlayTime += r.playSeconds;
     s.powerupsCollected += r.powerups;
     s.megaFoodCollected += r.mega;
+    // Match events: recorded with the same once-per-match result as everything else (no XP is attached to them).
+    s.eventsEarned += r.events.length;
+    for (const id of r.events) this.data.events[id] = (this.data.events[id] || 0) + 1;
     if (r.mode === 'multiplayer') {
       s.multiplayerGames += 1;
       if (r.victory) s.multiplayerWins += 1;

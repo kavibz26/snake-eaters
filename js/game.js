@@ -5,6 +5,7 @@ import { inBounds, cellsEqual, buildOccupancyMap, hitsTerrain } from './collisio
 import { buildMap, DEFAULT_MAP_ID, isKnownMap } from './maps/maps.js';
 import { findSpawn } from './maps/spawn.js';
 import { drawObstacles } from './maps/render.js';
+import { MatchEvents } from './events/tracker.js';
 import { decideAIDirection, getAIDisplayState } from './ai.js';
 import { SKINS, DEFAULT_SKIN_ID, getSkinById } from './skins.js';
 import { paintSnakeSegment, roundedSquare } from './snakeRender.js';
@@ -26,6 +27,7 @@ export class Game {
     this.accumulator = 0;
     this.particles = [];
     this.onGameOver = null; // callback({ victory, score, length, eliminations, foodEaten, ticks })
+    this.onMatchEvent = null; // callback({ k, id, v?, t }): a match event just fired (see js/events)
     this.onPlayerEvent = null; // callback('food' | 'kill'): the player just ate / eliminated someone (progression feedback)
     this.playerSkin = getSkinById(DEFAULT_SKIN_ID); // overridable via setPlayerSkin() for skins
     this.mapId = DEFAULT_MAP_ID; // which map the next run is played on (see js/maps/maps.js)
@@ -70,6 +72,7 @@ export class Game {
     this.snakes = this._spawnSnakes();
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
     this.specials = new PowerUpManager(); // fresh board, fresh timers: nothing carries over from a previous run
+    this.matchEvents = new MatchEvents(); // First Blood, milestones, ...: derived from this simulation's own state
     this._seedPlayerSpawnFood();
     this.food.replenish((x, y) => this._isCellBlocked(x, y), this.food.target);
     this.particles = [];
@@ -376,6 +379,10 @@ export class Game {
     // 8. Keep food topped up.
     this.food.replenish((x, y) => this._isCellBlocked(x, y));
 
+    // 8b. Match events (one cheap pass over the snakes).
+    this.matchEvents.update(this.tickCount, this.snakes, (s) => s.id);
+    this._emitMatchEvents();
+
     // 9. End conditions.
     if (!player.alive) {
       this._endGame(false);
@@ -466,6 +473,7 @@ export class Game {
   // (running into a bigger snake's body, or a head-to-head/crossing win):
   // same growth bonus, same score, same elimination credit.
   _creditKill(winner, loser) {
+    this.matchEvents.noteKill(winner.id, loser.id, this.tickCount);
     winner.grow(Math.ceil(loser.length * CONFIG.KILL_GROWTH_RATIO));
     winner.eliminations += 1;
     winner.score += CONFIG.KILL_SCORE;
@@ -484,10 +492,24 @@ export class Game {
     return false;
   }
 
+  // Delivers newly fired events (AI events included: they count for the match, only the player's are rewarded).
+  _emitMatchEvents() {
+    for (const ev of this.matchEvents.drain()) if (this.onMatchEvent) this.onMatchEvent(ev);
+  }
+
+  // Label for an event's snake: the player, or an AI by its skin name.
+  eventName(id) {
+    const s = this.snakes.find((x) => x.id === id);
+    if (!s) return '?';
+    return s.isPlayer ? 'You' : s.skin.name;
+  }
+
   _endGame(victory) {
     this.state = 'gameover';
     if (this.rafId) cancelAnimationFrame(this.rafId);
     const player = this.playerSnake;
+    this.matchEvents.finalize(this.snakes, (s) => s.id, this.tickCount);
+    this._emitMatchEvents();
     this._updateHud(victory ? 'Victory!' : 'Eliminated');
     if (this.onGameOver) {
       this.onGameOver({
@@ -499,6 +521,8 @@ export class Game {
         powerups: player.powerupsCollected,
         mega: player.megaCollected,
         ticks: this.tickCount,
+        playerId: player.id,
+        events: this.matchEvents.summary(), // everything that fired this match (AI included)
       });
     }
   }

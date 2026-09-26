@@ -3,6 +3,10 @@
 // reports (or supplies) its own kills, wins, score or XP.
 import { CONFIG } from '../config.js';
 import { foodFromMultiplayerScore } from './rewards.js';
+import { isEventId } from '../events/config.js';
+
+// The event ids THIS player earned, from the authoritative list (once each).
+const mineOf = (events, id) => [...new Set((events || []).filter((e) => e && e.id === id && isEventId(e.k)).map((e) => e.k))];
 
 // payload: Game.onGameOver({ victory, score, length, eliminations, foodEaten, ticks })
 export function fromSinglePlayer(payload, key) {
@@ -18,6 +22,7 @@ export function fromSinglePlayer(payload, key) {
     food: payload.foodEaten,
     powerups: payload.powerups,
     mega: payload.mega,
+    events: mineOf(payload.events, payload.playerId),
     playSeconds: Math.round(((payload.ticks || 0) * CONFIG.TICK_MS) / 1000), // game time: pauses are not counted
   };
 }
@@ -40,6 +45,7 @@ export function fromMultiplayer(over, myId, key, playSeconds) {
     food: foodFromMultiplayerScore(me.score, me.kills, me.mega), // Mega Food score is not "food eaten"
     powerups: me.powerups,
     mega: me.mega,
+    events: mineOf(over.events, myId),
     playSeconds,
   };
 }

@@ -8,6 +8,7 @@ import { getProfile } from './profile/profile.js';
 import { initProfileUI } from './profile/ui.js';
 import { createXpFeed, renderRewards, createLevelUpModal } from './profile/feedback.js';
 import { fromSinglePlayer, fromMultiplayer } from './profile/results.js';
+import { createEventToaster, renderEventSummary } from './events/ui.js';
 
 const screens = {
   start: document.getElementById('startScreen'),
@@ -54,6 +55,7 @@ let active = game;
 const profile = getProfile();
 const xpFeed = createXpFeed(document.getElementById('xpFeed'));
 const levelUpModal = createLevelUpModal(document.getElementById('levelUpOverlay'));
+const eventToaster = createEventToaster(document.getElementById('eventToast'), canvas);
 
 // Persist on the way out (writes are otherwise debounced and never happen per frame).
 window.addEventListener('pagehide', () => profile.flush());
@@ -121,12 +123,22 @@ let runCounter = 0;
 
 game.onPlayerEvent = (kind) => xpFeed.event(kind);
 
+// Match events (single player): derived by the Game itself. The player's own events and First Blood are toasted;
+// AI milestones count for the match but stay quiet.
+game.onMatchEvent = (ev) => {
+  const mine = ev.id === game.playerSnake.id;
+  if (mine || ev.k === 'first_blood') eventToaster.show(ev, (id) => game.eventName(id), { mine });
+};
+
 game.onGameOver = (result) => {
   document.getElementById('gameOverTitle').textContent = result.victory ? 'Victory!' : 'Game Over';
   document.getElementById('finalScore').textContent = result.score;
   document.getElementById('finalLength').textContent = result.length;
   document.getElementById('finalEliminations').textContent = result.eliminations;
   xpFeed.clear();
+  eventToaster.clear();
+  const shown = (result.events || []).filter((e) => e.id === result.playerId || e.k === 'first_blood');
+  renderEventSummary(document.getElementById('spEvents'), shown, { nameOf: (id) => game.eventName(id), myId: result.playerId });
 
   const key = runKey;
   runKey = null;
@@ -145,7 +157,9 @@ function beginRun() {
   setYouBadge(selectedSkin);
   runKey = `sp:${++runCounter}:${Date.now()}`;
   xpFeed.reset('single');
+  eventToaster.clear();
   document.getElementById('spRewards').classList.add('hidden');
+  document.getElementById('spEvents').classList.add('hidden');
   showScreen('game');
   game.restart();
 }
@@ -164,6 +178,15 @@ let mpStartedAt = 0;
 let mpCounter = 0;
 netGame.onPlayerEvent = (kind) => xpFeed.event(kind);
 
+// Match events (multiplayer): announced by the SERVER in its snapshots. Routine milestones of OTHER players stay quiet
+// (no spam); the local player's events, First Blood and the major ones are toasted with the player's name.
+const mpName = (id) => (id === netGame.myId ? 'You' : (netGame.views.get(id) ? netGame.views.get(id).name : '?'));
+netGame.onMatchEvent = (ev) => {
+  const mine = ev.id === netGame.myId;
+  const major = ev.k === 'first_blood' || ev.k === 'giant_snake' || ev.k === 'comeback';
+  if (mine || major) eventToaster.show(ev, mpName, { mine });
+};
+
 const progress = {
   nickname: () => profile.nickname,
   setNickname: (raw) => profile.setNickname(raw),
@@ -172,10 +195,16 @@ const progress = {
     mpKey = `mp:${++mpCounter}:${Date.now()}`;
     mpStartedAt = performance.now() + (msg.startsInMs || 0);
     xpFeed.reset('multiplayer');
+    eventToaster.clear();
+    document.getElementById('mpEvents').classList.add('hidden');
     renderRewards(document.getElementById('mpRewards'), null); // hide the previous match's rewards
   },
   onMatchOver(msg, myId) {
     xpFeed.clear();
+    eventToaster.clear();
+    // The final, authoritative list of events (players identified by their names from the results).
+    const names = new Map((msg.results || []).map((r) => [r.id, r.name]));
+    renderEventSummary(document.getElementById('mpEvents'), msg.events || [], { nameOf: (id) => (id === myId ? 'You' : (names.get(id) || '?')), myId });
     const key = mpKey;
     mpKey = null; // consumed: a second `over` for the same match cannot pay out again
     if (!key) return; // duplicate / unknown match: nothing to reward and the shown rewards stay untouched

@@ -66,9 +66,12 @@ test('single player: every effect activates on pickup, shows in the HUD payload,
   assert.ok(player.speedTicksLeft > 0 && player.magnetTicksLeft > 0 && player.shieldTicksLeft > 0);
   const last = hudCalls[hudCalls.length - 1];
   assert.deepEqual(last.effects.map((e) => e.type), ['speed', 'magnet', 'shield'], 'the compact status HUD gets the active effects');
-  put({ x: 5, y: 45 }, 'right');
-  tick(POWERUPS.shield.durationTicks + 2);
-  assert.ok(game.state === 'playing' || game.state === 'gameover');
+  // Run out the timers. The snake is re-placed in open ground every few ticks so it cannot reach a wall (or wander into the
+  // AI) before the effects have expired - this test is about the timers, not about steering.
+  for (let done = 0; done < POWERUPS.shield.durationTicks + 2; done += 5) {
+    put({ x: 20, y: 45 }, 'right');
+    for (let i = 0; i < 5; i++) game.tick();
+  }
   assert.equal(player.speedTicksLeft, 0);
   assert.equal(player.magnetTicksLeft, 0);
   assert.equal(player.shieldTicksLeft, 0);

@@ -6,6 +6,7 @@ import {
   SKIN_UNLOCK_LEVELS, GRANDFATHER_LEGACY_SKINS,
 } from './config.js';
 import { getLevelFromXP, getXPForLevel } from './xp.js';
+import { EVENT_IDS } from '../events/config.js';
 
 const MAX_XP = getXPForLevel(MAX_LEVEL) * 2; // sanity ceiling for a value read from storage
 const MAX_STAT = 1e9;
@@ -49,7 +50,7 @@ export function generateDefaultNickname(random = Math.random) {
 
 // --- shape -----------------------------------------------------------------------------------------
 
-const STAT_KEYS = ['gamesPlayed', 'gamesWon', 'kills', 'foodEaten', 'highestScore', 'longestSnake', 'totalPlayTime', 'multiplayerGames', 'multiplayerWins', 'powerupsCollected', 'megaFoodCollected'];
+const STAT_KEYS = ['gamesPlayed', 'gamesWon', 'kills', 'foodEaten', 'highestScore', 'longestSnake', 'totalPlayTime', 'multiplayerGames', 'multiplayerWins', 'powerupsCollected', 'megaFoodCollected', 'eventsEarned'];
 
 const num = (v, max = MAX_STAT) => {
   const n = Math.floor(Number(v));
@@ -69,6 +70,7 @@ export function createDefaultProfile({ now = Date.now(), random = Math.random, l
     level: 1,
     xp: 0,
     stats: Object.fromEntries(STAT_KEYS.map((k) => [k, 0])),
+    events: {}, // match events earned, by id (count)
     unlockedSkins: [...unlocked],
     selectedSkin: legacySkin && unlocked.has(legacySkin) ? legacySkin : 'classic',
     recentUnlock: null, // { skinId, at } - the skin unlocked most recently, for the profile highlight
@@ -88,6 +90,17 @@ export function grantLegacySkins(profile, legacy, knownSkins = Object.keys(SKIN_
     for (const id of knownSkins) if (!profile.unlockedSkins.includes(id)) profile.unlockedSkins.push(id);
   }
   return true;
+}
+
+function sanitizeEventCounts(raw) {
+  const out = {};
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    for (const id of EVENT_IDS) {
+      const n = num(raw[id]);
+      if (n > 0) out[id] = n;
+    }
+  }
+  return out;
 }
 
 // Coerces ANY parsed value into a valid current-version profile: unknown fields are dropped,
@@ -123,6 +136,7 @@ export function sanitizeProfile(raw, ctx = {}) {
     level,
     xp,
     stats,
+    events: sanitizeEventCounts(raw.events),
     unlockedSkins: [...unlocked],
     selectedSkin: selected,
     recentUnlock: recent,

@@ -1780,3 +1780,69 @@ body {
 }
 .lobby-map[data-map="blocks"] { color: #8fa6c6; border-color: rgba(143, 166, 198, 0.55); }
 .lobby-map[data-map="arena"] { color: #ffcf4d; border-color: rgba(255, 207, 77, 0.5); }
+
+/* ===== Match events ===== */
+.event-toast {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  max-width: 94%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 8px;
+  border-radius: 999px;
+  background: rgba(10, 13, 18, 0.93);
+  border: 1px solid rgba(143, 166, 198, 0.55);
+  pointer-events: none;
+  animation: eventIn 0.22s ease-out;
+}
+.event-toast-icon { font-size: 1.05rem; line-height: 1; flex-shrink: 0; }
+.event-toast-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.event-toast-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #cfe0f5; }
+.event-toast-detail { font-size: 0.68rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-toast--mine { border-color: var(--accent); }
+.event-toast--mine .event-toast-title { color: var(--accent); }
+/* Major events (First Blood, Giant Snake, Comeback) are bigger and glow */
+.event-toast--major {
+  padding: 6px 16px 6px 10px;
+  border-color: #ffcf4d;
+  box-shadow: 0 0 18px rgba(255, 207, 77, 0.35);
+  animation: eventMajorIn 0.32s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.event-toast--major .event-toast-icon { font-size: 1.35rem; }
+.event-toast--major .event-toast-title { font-size: 0.86rem; color: #ffcf4d; }
+.event-toast--major .event-toast-detail { font-size: 0.74rem; color: var(--text); }
+@keyframes eventIn { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+@keyframes eventMajorIn { from { opacity: 0; transform: translateX(-50%) scale(0.85); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+
+.event-summary {
+  margin: 12px 0 6px;
+  padding: 10px 12px;
+  background: #1c242e;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  text-align: left;
+}
+.event-summary-title { margin-bottom: 8px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); }
+.event-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.event-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 10px 3px 7px;
+  border-radius: 999px;
+  background: #10161d;
+  border: 1px solid var(--panel-border);
+  font-size: 0.74rem;
+}
+.event-chip-name { font-weight: 800; }
+.event-chip-who { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-chip--mine { border-color: var(--accent); }
+.event-chip--mine .event-chip-who { color: var(--accent); font-weight: 700; }
+.event-chip--major .event-chip-name { color: #ffcf4d; }
+
+@media (prefers-reduced-motion: reduce) { .event-toast, .event-toast--major { animation: none; } }

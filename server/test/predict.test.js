@@ -268,6 +268,9 @@ function simulate({ up, down, jitter = 0, seconds = 40, seed = 1, stopInputsAt =
     { id: 'me', name: 'Me', skinId: 'classic' },
     { id: 'ot', name: 'Ot', skinId: 'inferno' },
   ]);
+  // These simulations measure MOVEMENT prediction under latency. Power-ups are switched off here because a Shield hold
+  // on a body collision (a documented, rare correction) would otherwise add random mismatches; power-ups have their own tests.
+  sim.specials.cooldown = 1e9;
   const pred = new LocalPredictor();
   const tracker = new SnapTracker();
   tracker.apply(sim.snapshot({ full: true }));

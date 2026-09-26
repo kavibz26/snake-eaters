@@ -36,6 +36,7 @@ const STATS = [
   ['Online wins', (s) => formatNumber(s.multiplayerWins)],
   ['Power-ups', (s) => formatNumber(s.powerupsCollected)],
   ['Mega food', (s) => formatNumber(s.megaFoodCollected)],
+  ['Events', (s) => formatNumber(s.eventsEarned)],
 ];
 
 export function initProfileUI({ profile, showScreen, applySkin }) {

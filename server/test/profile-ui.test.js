@@ -65,7 +65,7 @@ async function openPage({ w, h, mobile = true, seed }) {
   // Tabs of one Chrome profile share localStorage, so every tab starts from a known state - once per tab (a reload must keep what the page saved).
   await page.send('Page.addScriptToEvaluateOnNewDocument', { source: `try { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); ${seed ? `localStorage.setItem('snakeEaters.profile.v1', ${JSON.stringify(JSON.stringify(seed))})` : `localStorage.removeItem('snakeEaters.profile.v1')`}; } } catch (e) {}` });
   await page.send('Page.navigate', { url: `http://127.0.0.1:${webPort}/` });
-  await sleep(700);
+  await booted(page); // poll until the page has booted (a fixed sleep is flaky on a busy machine)
   page.close = () => { ws.close(); };
   return page;
 }

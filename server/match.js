@@ -8,6 +8,7 @@ import { FoodManager } from '../js/food.js';
 import { inBounds, cellsEqual, buildOccupancyMap, hitsTerrain } from '../js/collision.js';
 import { buildMap, DEFAULT_MAP_ID, isKnownMap } from '../js/maps/maps.js';
 import { findSpawn } from '../js/maps/spawn.js';
+import { MatchEvents } from '../js/events/tracker.js';
 import { getSkinById } from '../js/skins.js';
 import { MATCH_MAX_TICKS } from './protocol.js';
 import { dirIndex, encodeBodyDelta } from '../js/net/snapcodec.js';
@@ -31,6 +32,7 @@ export class MatchSim {
     this.map = buildMap(this.mapId); // deterministic: the clients build the very same layout from the id
     this.obstacles = this.map.obstacles;
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
+    this.matchEvents = new MatchEvents(); // authoritative: clients only receive events, they can never award them
     this.specials = new PowerUpManager({ rng: options.rng || Math.random }); // server-owned: where items spawn, who collects them
 
     this._spawnSnakes(entries);
@@ -248,6 +250,10 @@ export class MatchSim {
     // 8. Keep food topped up.
     this.food.replenish((x, y) => this._isCellBlocked(x, y));
 
+    // 8b. Match events: one cheap pass over the snakes (see js/events/tracker.js).
+    this.matchEvents.update(this.tickCount, this.snakes, (s) => s.playerId);
+    this._collectMatchEvents();
+
     // 9. End conditions: last snake standing, or the time cap.
     const alive = this.snakes.filter((s) => s.alive);
     if (alive.length <= 1) {
@@ -261,6 +267,22 @@ export class MatchSim {
       this.winnerId = leaders.length === 1 ? leaders[0].playerId : null;
       this.endReason = 'time_limit';
     }
+    if (this.over) {
+      this.matchEvents.finalize(this.snakes, (s) => s.playerId, this.tickCount); // Longest Snake / Most Food
+      this._collectMatchEvents();
+    }
+  }
+
+  // Newly fired events ride along in this tick's snapshot (`ev`), for every client alike.
+  _collectMatchEvents() {
+    for (const ev of this.matchEvents.drain()) {
+      this.events.push(ev.v !== undefined ? { e: 'mev', k: ev.k, id: ev.id, v: ev.v } : { e: 'mev', k: ev.k, id: ev.id });
+    }
+  }
+
+  // Everything that has fired so far (sent in `over`, and to a reconnecting player so they never see a repeat).
+  eventSummary() {
+    return this.matchEvents.summary().map((e) => (e.v !== undefined ? { k: e.k, id: e.id, v: e.v, t: e.t } : { k: e.k, id: e.id, t: e.t }));
   }
 
   _resolveCollisionGroup(group, deaths, bounced) {
@@ -308,6 +330,7 @@ export class MatchSim {
   }
 
   _creditKill(winner, loser) {
+    this.matchEvents.noteKill(winner.playerId, loser.playerId, this.tickCount);
     winner.grow(Math.ceil(loser.length * CONFIG.KILL_GROWTH_RATIO));
     winner.eliminations += 1;
     winner.score += CONFIG.KILL_SCORE;

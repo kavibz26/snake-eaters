@@ -239,6 +239,7 @@ export class Lobby {
       mh: buildMap(this.mapId).hash, // ... and can verify it matches the server's
       players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId })),
       you: player.id,
+      events: this.match.eventSummary(), // already-fired events: a reconnecting client marks them seen, never re-announces
       snap: this.match.snapshot({ full: true }), // complete state; per-tick snapshots are deltas
     };
   }
@@ -319,6 +320,7 @@ export class Lobby {
       winnerId: match.winnerId,
       reason: match.endReason,
       results: match.results(),
+      events: match.eventSummary(), // the authoritative final list of match events
     });
     this._release();
   }

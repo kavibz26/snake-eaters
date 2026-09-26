@@ -23,6 +23,8 @@ const SNAP_THRESHOLD_CELLS = 3; // bigger disagreements are real desyncs: show t
 const SYNC_COOLDOWN_MS = 750;
 const GO_FLASH_MS = 700; // how long "GO!" stays up after the countdown ends (purely visual)
 
+const eventKey = (e) => (e.k === 'first_blood' ? e.k : `${e.k}:${e.id}`);
+
 export class NetGame extends Game {
   constructor(canvas, hud) {
     super(canvas, hud);
@@ -43,6 +45,8 @@ export class NetGame extends Game {
     this.onBanner = null; // (text | null) => void, drives the overlay in the arena
     this.onPauseRequest = null; // pause button => "leave match?" prompt
     this.onBoard = null; // (rows) => void, live leaderboard (order computed by the server)
+    this.onMatchEvent = null; // ({ k, id, v? }) => void: an event the SERVER announced (never generated here)
+    this.seenEvents = new Set(); // "k:id" of events already announced this match (a reconnect never repeats one)
     this.onPlayerEvent = null; // ('food' | 'kill') => void, for the provisional XP feedback (real XP comes from the final result)
     this._feedTick = -1; // last tick whose events fed onPlayerEvent: a repeated snapshot must not repeat feedback
     this._lastBanner = undefined;
@@ -66,6 +70,8 @@ export class NetGame extends Game {
 
   // Called with the server's 'match' message (fresh start, or a resume after a reconnect).
   beginMatch(msg) {
+    if (!msg.resumed) this.seenEvents = new Set();
+    for (const e of msg.events || []) this.seenEvents.add(eventKey(e)); // already fired: recorded, not re-announced
     this.setMap(msg.map); // the server's configured map: the same deterministic layout it simulates
     this.predictor.setObstacles(this.obstacles);
     this.mapMismatch = Boolean(msg.mh) && this.map.hash !== msg.mh; // stale client: layout differs from the server's
@@ -318,6 +324,12 @@ export class NetGame extends Game {
         this._spawnPickupEffect({ x: ev.x, y: ev.y }, ev.k);
       } else if (ev.e === 'shield') {
         this._spawnShieldBlock({ x: ev.x, y: ev.y });
+      } else if (ev.e === 'mev') {
+        const key = eventKey(ev);
+        if (!this.seenEvents.has(key)) {
+          this.seenEvents.add(key);
+          if (this.onMatchEvent) this.onMatchEvent(ev);
+        }
       }
     }
   }
