@@ -1763,3 +1763,20 @@ body {
     white-space: nowrap;
   }
 }
+
+/* ===== Maps: the lobby's map shown as a small tag next to its name ===== */
+.lobby-map {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--text-dim);
+}
+.lobby-map[data-map="blocks"] { color: #8fa6c6; border-color: rgba(143, 166, 198, 0.55); }
+.lobby-map[data-map="arena"] { color: #ffcf4d; border-color: rgba(255, 207, 77, 0.5); }

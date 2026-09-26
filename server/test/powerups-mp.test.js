@@ -37,13 +37,13 @@ function quietSim() {
 }
 const wire = (snap) => JSON.parse(JSON.stringify(snap));
 
-test('protocol version is 4 and the server reports it', async () => {
-  assert.equal(PROTOCOL_VERSION, 4);
+test('protocol version is 5 (maps) and a stale client is told to refresh', async () => {
+  assert.equal(PROTOCOL_VERSION, 5);
   const c = await h.connect('Old');
-  c.send({ t: 'lobbies', v: 3 });
+  c.send({ t: 'lobbies', v: 4 });
   const err = await c.waitFor('error');
-  assert.equal(err.code, 'bad_version', 'a stale v3 client is told to refresh');
-  assert.equal(err.sv, 4);
+  assert.equal(err.code, 'bad_version', 'a stale v4 client is told to refresh');
+  assert.equal(err.sv, 5);
 });
 
 test('state sync: items appear and disappear through delta snapshots, and the client tracker mirrors the server exactly', () => {

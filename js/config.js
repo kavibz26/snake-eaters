@@ -27,6 +27,8 @@ export const CONFIG = {
   DEATH_FOOD_STRIDE: 2, // every Nth body segment of a dead snake becomes food
 
   AI_VIEW_RANGE: 14, // cells; how far AI "notices" food
+  AI_MAX_DETOUR: 6, // maps with obstacles: an AI only heads for food / items whose walking distance is within this many extra steps of the straight-line distance
+  AI_REACH_TTL_TICKS: 8, // how long an AI remembers a reachability verdict
   AI_FLOODFILL_BUDGET: 32, // max cells explored when scoring open space - shortened from 45 so escape planning has realistic limits (an AI can misjudge a route that looks open nearby but narrows further out) instead of always finding the objectively perfect route
 
   BOOST_DURATION_TICKS: 10, // ~1.5s at TICK_MS=150 - the player moves 2 cells/tick instead of 1 for this long

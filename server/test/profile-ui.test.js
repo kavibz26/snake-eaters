@@ -23,6 +23,14 @@ const CHROME = CANDIDATES.find((p) => { try { return fs.existsSync(p); } catch {
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp', '.png': 'image/png', '.json': 'application/json' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// After a reload, wait (polling) until the page has booted: a fixed sleep is flaky on a busy machine.
+async function booted(page) {
+  for (let i = 0; i < 80; i++) {
+    try { if (await page.eval(`!!document.getElementById('cardName') && document.getElementById('cardName').textContent.length > 0`)) return; } catch { /* navigating */ }
+    await sleep(100);
+  }
+}
+
 let web; let proc; let userDir; let port; let webPort;
 
 class Page {
@@ -149,9 +157,13 @@ test('profile UI: reload keeps the profile (nickname, XP, selected skin)', { ski
   const page = await openPage({ w: 390, h: 844, seed: SEED });
   try {
     await page.eval(`document.getElementById('profileCard').click(); document.getElementById('profileSkinsBtn').click(); document.querySelector('#profileSkinGrid .skin-card[data-skin-id="toxic"]').click()`);
-    await sleep(600); // let the debounced save run
+    // wait for the debounced save to land (polling, so a busy machine cannot make this flaky)
+    for (let i = 0; i < 40; i++) {
+      if (await page.eval(`(JSON.parse(localStorage.getItem('snakeEaters.profile.v1') || '{}').selectedSkin) === 'toxic'`)) break;
+      await sleep(100);
+    }
     await page.send('Page.reload');
-    await sleep(800);
+    await booted(page);
     assert.equal(await page.eval(`document.getElementById('cardName').textContent`), 'SnakeMaster');
     assert.match(await page.eval(`document.getElementById('cardLevel').textContent`), /Level 7/);
     assert.equal(await page.eval(`document.querySelector('#skinPicker .skin-card.selected').dataset.skinId`), 'toxic');
@@ -163,7 +175,7 @@ test('profile UI: a corrupted stored profile does not break the page', { skip: !
   try {
     await page.eval(`localStorage.setItem('snakeEaters.profile.v1', '{not json')`);
     await page.send('Page.reload');
-    await sleep(800);
+    await booted(page);
     assert.match(await page.eval(`document.getElementById('cardName').textContent`), /^Snake\d{4}$/);
     assert.match(await page.eval(`document.getElementById('cardLevel').textContent`), /Level 1/);
     assert.deepEqual(page.errors, []);

@@ -21,7 +21,7 @@ test('lobby list: several fixed public lobbies, all starting empty (0/6) and wai
   assert.equal(list.max, 6);
   assert.deepEqual(ids(list), ['lobby-1', 'lobby-2', 'lobby-3', 'lobby-4', 'lobby-5', 'lobby-6']);
   for (const l of list.lobbies) {
-    assert.deepEqual(Object.keys(l).sort(), ['id', 'm', 'name', 'p', 's'], 'compact entries only');
+    assert.deepEqual(Object.keys(l).sort(), ['id', 'm', 'map', 'name', 'p', 's'], 'compact entries only (the configured map id is the one extra field)');
     assert.equal(l.p, 0);
     assert.equal(l.m, 6);
     assert.equal(l.s, 'waiting');

@@ -1,7 +1,10 @@
 import { CONFIG, cellKey } from './config.js';
 import { Snake } from './snake.js';
 import { FoodManager } from './food.js';
-import { inBounds, cellsEqual, buildOccupancyMap } from './collision.js';
+import { inBounds, cellsEqual, buildOccupancyMap, hitsTerrain } from './collision.js';
+import { buildMap, DEFAULT_MAP_ID, isKnownMap } from './maps/maps.js';
+import { findSpawn } from './maps/spawn.js';
+import { drawObstacles } from './maps/render.js';
 import { decideAIDirection, getAIDisplayState } from './ai.js';
 import { SKINS, DEFAULT_SKIN_ID, getSkinById } from './skins.js';
 import { paintSnakeSegment, roundedSquare } from './snakeRender.js';
@@ -10,6 +13,7 @@ import { collectSpecial, takesExtraStep, absorbLethal, endOfTickEffects } from '
 import { drawSpecialItem, drawSnakeEffects, activeEffectsForHud, POWERUP_STYLE } from './powerups/render.js';
 
 const AI_PROFILES = ['forager', 'hunter', 'cautious'];
+const OBSTACLE = { isObstacle: true }; // occupancy-map owner for obstacle cells (AI treat them as solid)
 
 export class Game {
   constructor(canvas, hud) {
@@ -24,6 +28,8 @@ export class Game {
     this.onGameOver = null; // callback({ victory, score, length, eliminations, foodEaten, ticks })
     this.onPlayerEvent = null; // callback('food' | 'kill'): the player just ate / eliminated someone (progression feedback)
     this.playerSkin = getSkinById(DEFAULT_SKIN_ID); // overridable via setPlayerSkin() for skins
+    this.mapId = DEFAULT_MAP_ID; // which map the next run is played on (see js/maps/maps.js)
+    this.setMap(DEFAULT_MAP_ID);
 
     this._loop = this._loop.bind(this);
     this._setupCanvas();
@@ -33,6 +39,13 @@ export class Game {
     if (skin) this.playerSkin = skin;
   }
 
+  // Selects the map (obstacle layout). Unknown ids fall back to the default. Takes effect on the next init().
+  setMap(id) {
+    this.mapId = isKnownMap(id) ? id : DEFAULT_MAP_ID;
+    this.map = buildMap(this.mapId);
+    this.obstacles = this.map.obstacles;
+  }
+
   // High-res pixel buffer for crisp rendering; the element's on-screen box
   // size is controlled entirely by CSS (aspect-ratio) so it stays responsive.
   // DPR is capped at 2 - beyond that the crispness gain is imperceptible but
@@ -40,6 +53,7 @@ export class Game {
   // displays running six patterned snakes at once.
   _setupCanvas() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this._dpr = dpr;
     const w = CONFIG.GRID_COLS * CONFIG.CELL_SIZE;
     const h = CONFIG.GRID_ROWS * CONFIG.CELL_SIZE;
     this.canvas.width = w * dpr;
@@ -52,6 +66,7 @@ export class Game {
   }
 
   init() {
+    this.setMap(this.mapId); // same layout every run: obstacles are deterministic
     this.snakes = this._spawnSnakes();
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
     this.specials = new PowerUpManager(); // fresh board, fresh timers: nothing carries over from a previous run
@@ -173,7 +188,7 @@ export class Game {
       if (extra) {
         const preOcc = buildOccupancyMap(this.snakes);
         const nh = snake.nextHead();
-        if (!inBounds(nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
+        if (hitsTerrain(this.obstacles, nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
           if (!this._absorb(snake)) {
             snake.kill();
             this.food.scatterAt(snake.corpseFoodCells(), (x, y) => this.food.has(x, y));
@@ -213,6 +228,8 @@ export class Game {
     // is shared across this tick's decisions so AI collectively cap how many
     // of them commit to attacking the player at once (see ai.js).
     const preMoveOccupancy = buildOccupancyMap(this.snakes);
+    // AI treat obstacles as solid for movement and flood-fill (a sentinel owner: they are not a snake).
+    for (const k of this.obstacles) preMoveOccupancy.set(k, OBSTACLE);
     const playerPressure = { count: 0, cap: CONFIG.MAX_PLAYER_ATTACKERS };
     for (const snake of aliveSnakes) {
       if (!snake.isPlayer) {
@@ -223,6 +240,7 @@ export class Game {
           matchTicks: this.tickCount,
           playerPressure,
           specials: this.specials, // AI may head for a nearby power-up (see js/ai.js, POWERUPS.ai)
+          terrain: this.obstacles, // maps with obstacles: AI skip food / items that are a long detour away
         });
         snake.setDirection(dir);
       }
@@ -264,7 +282,7 @@ export class Game {
     // and a wall is always fatal too. Same rule for the player and every AI.
     for (const snake of aliveSnakes) {
       const nh = moves.get(snake);
-      if (!inBounds(nh.x, nh.y)) {
+      if (hitsTerrain(this.obstacles, nh.x, nh.y)) { // wall or obstacle: the same lethal rule (and the same Shield)
         this._lethal(snake, null, deaths, bounced);
         continue;
       }
@@ -456,7 +474,7 @@ export class Game {
   }
 
   _isCellBlocked(x, y) {
-    if (this.food.has(x, y) || this.specials.has(x, y)) return true;
+    if (this.food.has(x, y) || this.specials.has(x, y) || this.obstacles.has(cellKey(x, y))) return true;
     for (const s of this.snakes) {
       if (!s.alive) continue;
       for (const c of s.body) {
@@ -559,6 +577,7 @@ export class Game {
 
     const dirNames = Object.keys(CONFIG.DIRECTIONS);
     const snakes = [];
+    const taken = new Set(); // cells already used by earlier spawns
     for (let i = 0; i < count; i++) {
       const zone = usedZones[i];
       const isPlayer = i === 0;
@@ -578,15 +597,18 @@ export class Game {
         CONFIG.GRID_ROWS - 1 - margin
       );
 
+      // On a map with obstacles, move the spawn to open ground (unchanged on Classic).
+      const spot = findSpawn(this.obstacles, cx, cy, length, dir, 9, taken) || { cx, cy, dir };
       const cells = [];
       for (let seg = 0; seg < length; seg++) {
-        cells.push({ x: cx - dir.x * seg, y: cy - dir.y * seg });
+        cells.push({ x: spot.cx - spot.dir.x * seg, y: spot.cy - spot.dir.y * seg });
       }
+      for (const c of cells) taken.add(cellKey(c.x, c.y));
 
       snakes.push(new Snake({
         isPlayer,
         cells,
-        direction: dir,
+        direction: spot.dir,
         skin: isPlayer ? this.playerSkin : aiSkinPool[(i - 1) % aiSkinPool.length],
         profile: isPlayer ? null : AI_PROFILES[(i - 1) % AI_PROFILES.length],
       }));
@@ -732,6 +754,7 @@ export class Game {
     vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, w, h);
+    drawObstacles(ctx, this.map, cs, this._dpr || 1, w, h); // one drawImage of a pre-rendered layer
   }
 
   _renderSnake(ctx, snake) {

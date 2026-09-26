@@ -65,7 +65,7 @@ const aiMemory = new WeakMap();
 function getMemory(snake) {
   let mem = aiMemory.get(snake);
   if (!mem) {
-    mem = { sinceTurn: 99, lastMode: null, lastTargetingPlayer: false, puTarget: null, puIgnored: new Set() }; // sinceTurn large so a snake's very first decision is never gated
+    mem = { sinceTurn: 99, lastMode: null, lastTargetingPlayer: false, puTarget: null, puIgnored: new Set(), reach: new Map() }; // sinceTurn large so a snake's very first decision is never gated
     aiMemory.set(snake, mem);
   }
   return mem;
@@ -128,7 +128,62 @@ function openSpaceScore(startCell, occupancyMap, budget) {
   return explored;
 }
 
-function findNearestFood(head, foodManager, viewRange) {
+// Bounded breadth-first walk over open ground (obstacles and the board edge are solid): the number of
+// steps from `from` to `to`, or Infinity if it takes more than `limit`. Only used on maps with obstacles.
+export function terrainSteps(from, to, terrain, limit) {
+  if (from.x === to.x && from.y === to.y) return 0;
+  const seen = new Set([cellKey(from.x, from.y)]);
+  let frontier = [from];
+  for (let steps = 1; steps <= limit; steps++) {
+    const next = [];
+    for (const c of frontier) {
+      for (const dir of ALL_DIRECTIONS) {
+        const x = c.x + dir.x;
+        const y = c.y + dir.y;
+        const k = cellKey(x, y);
+        if (!inBounds(x, y) || terrain.has(k) || seen.has(k)) continue;
+        if (x === to.x && y === to.y) return steps;
+        seen.add(k);
+        next.push({ x, y });
+      }
+    }
+    if (!next.length) break;
+    frontier = next;
+  }
+  return Infinity;
+}
+
+// On a map with obstacles: "is this target worth walking to?" - its walking distance must be within
+// CONFIG.AI_MAX_DETOUR of the straight-line distance, so an AI never fixates on food that is just across
+// a wall. Verdicts are cached for a few ticks. Returns null on Classic (no check, no cost).
+function makeReach(snake, memory, world) {
+  const terrain = world.terrain;
+  if (!terrain || terrain.size === 0) return null;
+  const now = world.matchTicks || 0;
+  return (cell) => {
+    const key = cellKey(cell.x, cell.y);
+    const hit = memory.reach.get(key);
+    if (hit && now - hit.t < CONFIG.AI_REACH_TTL_TICKS) return hit.ok;
+    const straight = manhattan(snake.head, cell);
+    const ok = terrainSteps(snake.head, cell, terrain, straight + CONFIG.AI_MAX_DETOUR) <= straight + CONFIG.AI_MAX_DETOUR;
+    if (memory.reach.size > 48) memory.reach.clear();
+    memory.reach.set(key, { ok, t: now });
+    return ok;
+  };
+}
+
+function findNearestFood(head, foodManager, viewRange, reach = null) {
+  if (reach) {
+    const near = [];
+    for (const food of foodManager.all()) if (manhattan(head, food) <= viewRange) near.push(food);
+    near.sort((a, b) => manhattan(head, a) - manhattan(head, b));
+    let checks = 0;
+    for (const food of near) {
+      if (reach(food)) return food;
+      if (++checks >= 3) break; // imperfect on purpose: a few candidates, not a full search
+    }
+    return null;
+  }
   let best = null;
   let bestDist = Infinity;
   for (const food of foodManager.all()) {
@@ -174,7 +229,7 @@ function pickPowerupTarget(snake, memory, traits, world, threat) {
   const reachable = inBounds(best.x, best.y)
     && !world.occupancyMap.has(cellKey(best.x, best.y))
     && openSpaceScore(best, world.occupancyMap, cfg.reachFillBudget) >= cfg.minSpaceAtTarget;
-  if (!reachable || Math.random() >= interest) {
+  if (!reachable || (world.reach && !world.reach(best)) || Math.random() >= interest) {
     memory.puIgnored.add(id); // remembered: not re-rolled every tick
     return null;
   }
@@ -276,9 +331,10 @@ export function decideAIDirection(snake, world) {
   prey = restrictPreyIfPlayer(snake, prey, traits, world);
   const mode = decideMode(traits, threat, prey);
   const memory = getMemory(snake);
-  const powerup = mode === 'forage' ? pickPowerupTarget(snake, memory, traits, world, threat) : null;
+  const reach = makeReach(snake, memory, world);
+  const powerup = mode === 'forage' ? pickPowerupTarget(snake, memory, traits, { ...world, reach }, threat) : null;
   if (mode !== 'forage') memory.puTarget = null;
-  const food = mode === 'forage' && !powerup ? findNearestFood(head, foodManager, CONFIG.AI_VIEW_RANGE) : null;
+  const food = mode === 'forage' && !powerup ? findNearestFood(head, foodManager, CONFIG.AI_VIEW_RANGE, reach) : null;
   memory.lastMode = mode;
   memory.lastTargetingPlayer = !!(prey && prey.isPlayer);
 

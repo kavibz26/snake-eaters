@@ -42,6 +42,9 @@ const hud = new Hud({
 });
 
 const game = new Game(canvas, hud);
+// Single player map: Classic by default. A URL parameter (?map=blocks | arena) selects another configured map -
+// there is deliberately no map screen yet (see js/maps/maps.js).
+game.setMap(new URLSearchParams(location.search).get('map'));
 // Online multiplayer reuses the same canvas/HUD; `active` decides which one input drives.
 const netGame = new NetGame(canvas, hud);
 let active = game;

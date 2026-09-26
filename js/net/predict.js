@@ -23,7 +23,7 @@
 //      renderer's decaying offset (see NetGame), big ones just snap.
 import { CONFIG, cellKey } from '../config.js';
 import { Snake } from '../snake.js';
-import { inBounds } from '../collision.js';
+import { hitsTerrain } from '../collision.js';
 import { takesExtraStep } from '../powerups/effects.js';
 import { DIR_VECS, dirIndex } from './snapcodec.js';
 
@@ -60,6 +60,7 @@ export function predictorState(snap, s, flat) {
 export class LocalPredictor {
   constructor(tickMs = CONFIG.TICK_MS) {
     this.tickMs = tickMs;
+    this.obstacles = new Set(); // the match's map obstacles (solid for prediction, exactly like the board edge)
     this.reset();
   }
 
@@ -243,9 +244,14 @@ export class LocalPredictor {
     this.history.delete(j - 24);
   }
 
+  // Obstacles are static for a match and identical on both sides (same map id -> same layout).
+  setObstacles(obstacles) {
+    this.obstacles = obstacles || new Set();
+  }
+
   _move(s) {
     const nh = s.nextHead();
-    if (!inBounds(nh.x, nh.y)) return;
+    if (hitsTerrain(this.obstacles, nh.x, nh.y)) return; // solid: hold still, like the server does when a shield absorbs the hit
     const key = cellKey(nh.x, nh.y);
     if (this.food.has(key) && !this.eaten.has(key)) {
       this.eaten.add(key);

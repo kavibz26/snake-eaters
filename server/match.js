@@ -5,7 +5,9 @@
 import { CONFIG, cellKey } from '../js/config.js';
 import { Snake } from '../js/snake.js';
 import { FoodManager } from '../js/food.js';
-import { inBounds, cellsEqual, buildOccupancyMap } from '../js/collision.js';
+import { inBounds, cellsEqual, buildOccupancyMap, hitsTerrain } from '../js/collision.js';
+import { buildMap, DEFAULT_MAP_ID, isKnownMap } from '../js/maps/maps.js';
+import { findSpawn } from '../js/maps/spawn.js';
 import { getSkinById } from '../js/skins.js';
 import { MATCH_MAX_TICKS } from './protocol.js';
 import { dirIndex, encodeBodyDelta } from '../js/net/snapcodec.js';
@@ -14,7 +16,9 @@ import { POWERUP_INDEX } from '../js/powerups/config.js';
 import { collectSpecial, takesExtraStep, absorbLethal, endOfTickEffects } from '../js/powerups/effects.js';
 
 export class MatchSim {
-  // entries: [{ id, name, skinId }]   options: { rng } (tests inject a seeded generator for the power-up spawner)
+  // entries: [{ id, name, skinId }]   options: { rng, mapId }
+  //   rng: tests inject a seeded generator for the power-up spawner
+  //   mapId: which map this match is played on (the lobby's configured map); unknown ids fall back to Classic
   constructor(entries, options = {}) {
     this.tickCount = 0;
     this.events = [];
@@ -23,6 +27,9 @@ export class MatchSim {
     this.endReason = null;
     this.snakes = [];
     this.byId = new Map();
+    this.mapId = isKnownMap(options.mapId) ? options.mapId : DEFAULT_MAP_ID;
+    this.map = buildMap(this.mapId); // deterministic: the clients build the very same layout from the id
+    this.obstacles = this.map.obstacles;
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
     this.specials = new PowerUpManager({ rng: options.rng || Math.random }); // server-owned: where items spawn, who collects them
 
@@ -107,7 +114,7 @@ export class MatchSim {
       if (extra) {
         const preOcc = buildOccupancyMap(this.snakes);
         const nh = snake.nextHead();
-        if (!inBounds(nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
+        if (hitsTerrain(this.obstacles, nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
           if (!this._absorb(snake)) this._killSnake(snake, null, 'boost');
         } else {
           if (this.food.has(nh.x, nh.y)) {
@@ -159,7 +166,7 @@ export class MatchSim {
     // your own body and walls are always fatal.
     for (const snake of movers) {
       const nh = moves.get(snake);
-      if (!inBounds(nh.x, nh.y)) {
+      if (hitsTerrain(this.obstacles, nh.x, nh.y)) { // wall or obstacle: one lethal rule, one Shield rule
         this._lethal(snake, null, deaths, bounced);
         continue;
       }
@@ -325,7 +332,7 @@ export class MatchSim {
   }
 
   _isCellBlocked(x, y) {
-    if (this.food.has(x, y) || this.specials.has(x, y)) return true;
+    if (this.food.has(x, y) || this.specials.has(x, y) || this.obstacles.has(cellKey(x, y))) return true;
     for (const s of this.snakes) {
       if (!s.alive) continue;
       for (const c of s.body) {
@@ -370,6 +377,7 @@ export class MatchSim {
     shuffle(chosen);
 
     const dirNames = Object.keys(CONFIG.DIRECTIONS);
+    const taken = new Set(); // cells used by snakes already placed
     entries.forEach((entry, i) => {
       const zone = chosen[i];
       const length = CONFIG.PLAYER_INITIAL_LENGTH; // everyone starts equal
@@ -377,10 +385,13 @@ export class MatchSim {
       const margin = CONFIG.SPAWN_MARGIN + length;
       const cx = clamp(Math.floor((zone.x0 + zone.x1) / 2), margin, CONFIG.GRID_COLS - 1 - margin);
       const cy = clamp(Math.floor((zone.y0 + zone.y1) / 2), margin, CONFIG.GRID_ROWS - 1 - margin);
+      // On a map with obstacles the spawn moves to open ground (unchanged on Classic).
+      const spot = findSpawn(this.obstacles, cx, cy, length, dir, 9, taken) || { cx, cy, dir };
       const cells = [];
-      for (let seg = 0; seg < length; seg++) cells.push({ x: cx - dir.x * seg, y: cy - dir.y * seg });
+      for (let seg = 0; seg < length; seg++) cells.push({ x: spot.cx - spot.dir.x * seg, y: spot.cy - spot.dir.y * seg });
+      for (const c of cells) taken.add(cellKey(c.x, c.y));
 
-      const snake = new Snake({ isPlayer: true, cells, direction: dir, skin: getSkinById(entry.skinId), profile: null });
+      const snake = new Snake({ isPlayer: true, cells, direction: spot.dir, skin: getSkinById(entry.skinId), profile: null });
       snake.playerId = entry.id;
       snake.name = entry.name;
       snake.skinId = entry.skinId;

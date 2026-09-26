@@ -16,8 +16,9 @@ import { MatchSim } from './match.js';
 import {
   LOBBY_COUNT, MAX_PLAYERS_PER_LOBBY, MIN_PLAYERS_TO_START, LOBBY_START_DELAY_MS,
   LOBBY_FULL_START_DELAY_MS, COUNTDOWN_MS, RECONNECT_GRACE_MS, CHAT_BUCKET, CHAT_HISTORY,
-  sanitizeName, sanitizeChat,
+  sanitizeName, sanitizeChat, mapForLobby,
 } from './protocol.js';
+import { buildMap } from '../js/maps/maps.js';
 
 const OPEN = 1;
 
@@ -32,6 +33,7 @@ export class Lobby {
     this.name = `Lobby ${index}`;
     this.manager = manager;
     this.max = maxPlayers;
+    this.mapId = mapForLobby(index); // fixed for the lifetime of the server: every match here uses this map
     this.players = new Map(); // id -> player, in join order
     this.state = 'waiting'; // waiting | countdown | running
     this.phase = null; // while running: 'starting' (3-2-1) | 'playing'
@@ -62,7 +64,7 @@ export class Lobby {
   }
 
   summary() {
-    return { id: this.id, name: this.name, p: this.count, m: this.max, s: this.state };
+    return { id: this.id, name: this.name, p: this.count, m: this.max, s: this.state, map: this.mapId };
   }
 
   publicInfo() {
@@ -70,6 +72,7 @@ export class Lobby {
       id: this.id,
       name: this.name,
       state: this.state,
+      map: this.mapId,
       max: this.max,
       min: MIN_PLAYERS_TO_START,
       startsInMs: this.state === 'countdown' ? Math.max(0, this.startAt - Date.now()) : 0,
@@ -232,6 +235,8 @@ export class Lobby {
       resumed,
       startsInMs: this.phase === 'starting' ? Math.max(0, this.startsAt - Date.now()) : 0,
       tickMs: CONFIG.TICK_MS,
+      map: this.mapId, // the client rebuilds the obstacle layout from this id ...
+      mh: buildMap(this.mapId).hash, // ... and can verify it matches the server's
       players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId })),
       you: player.id,
       snap: this.match.snapshot({ full: true }), // complete state; per-tick snapshots are deltas
@@ -254,7 +259,7 @@ export class Lobby {
       this._changed();
       return;
     }
-    this.match = new MatchSim([...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId })));
+    this.match = new MatchSim([...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId })), { mapId: this.mapId });
     this.state = 'running'; // locked from this moment
     this.phase = 'starting';
     this.startsAt = Date.now() + COUNTDOWN_MS;

@@ -66,6 +66,9 @@ export class NetGame extends Game {
 
   // Called with the server's 'match' message (fresh start, or a resume after a reconnect).
   beginMatch(msg) {
+    this.setMap(msg.map); // the server's configured map: the same deterministic layout it simulates
+    this.predictor.setObstacles(this.obstacles);
+    this.mapMismatch = Boolean(msg.mh) && this.map.hash !== msg.mh; // stale client: layout differs from the server's
     this.myId = msg.you;
     this.views = new Map();
     for (const p of msg.players) {

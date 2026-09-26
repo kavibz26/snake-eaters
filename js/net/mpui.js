@@ -3,6 +3,7 @@
 // indicator. Pure DOM glue between the existing start screen, NetClient (transport)
 // and NetGame (in-match view). The server decides which lobbies exist, how many
 // players are in them and who may join - this file only displays that.
+import { MAPS } from '../maps/maps.js';
 import { NetClient } from './client.js';
 import { PROTOCOL_VERSION, MAX_RECONNECT_ATTEMPTS } from './config.js';
 import { getSkinById } from '../skins.js';
@@ -222,6 +223,11 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       const name = document.createElement('span');
       name.className = 'lobby-name';
       name.textContent = l.name;
+      const mapTag = document.createElement('span');
+      mapTag.className = 'lobby-map';
+      mapTag.dataset.map = l.map || 'classic';
+      mapTag.textContent = (MAPS[l.map] || MAPS.classic).name;
+      name.appendChild(mapTag);
       const meta = document.createElement('span');
       meta.className = 'lobby-meta';
       const count = document.createElement('span');
@@ -365,7 +371,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
 
   function renderLobby(l, note) {
     const you = net.you && net.you.id;
-    el.lobbyTitle.textContent = l.name;
+    el.lobbyTitle.textContent = l.map && l.map !== 'classic' ? `${l.name} \u00b7 ${(MAPS[l.map] || MAPS.classic).name}` : l.name;
     el.lobbyCount.textContent = `${l.players.length}/${l.max}`;
     const added = new Set(announceRosterChanges(l));
 
@@ -547,6 +553,8 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
     startMatchUi();
     activate();
     go('game');
+    notify(`Map: ${netGame.map.name}`); // which map this match is played on
+    if (netGame.mapMismatch) notify('Map data is out of date - please refresh the page');
   });
 
   net.on('snap', (snap, recvAt) => netGame.applySnapshot(snap, recvAt));
