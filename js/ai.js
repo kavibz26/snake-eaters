@@ -1,5 +1,6 @@
 import { CONFIG, cellKey, isOpposite } from './config.js';
 import { inBounds } from './collision.js';
+import { POWERUPS } from './powerups/config.js';
 
 const ALL_DIRECTIONS = Object.values(CONFIG.DIRECTIONS);
 
@@ -64,7 +65,7 @@ const aiMemory = new WeakMap();
 function getMemory(snake) {
   let mem = aiMemory.get(snake);
   if (!mem) {
-    mem = { sinceTurn: 99, lastMode: null, lastTargetingPlayer: false }; // sinceTurn large so a snake's very first decision is never gated
+    mem = { sinceTurn: 99, lastMode: null, lastTargetingPlayer: false, puTarget: null, puIgnored: new Set() }; // sinceTurn large so a snake's very first decision is never gated
     aiMemory.set(snake, mem);
   }
   return mem;
@@ -137,6 +138,47 @@ function findNearestFood(head, foodManager, viewRange) {
       best = food;
     }
   }
+  return best;
+}
+
+// Power-up target for a foraging AI, or null. Cheap by design: at most POWERUPS.spawn.maxActive items are on
+// the board, the nearest one wins (never "the strongest"), and each item is judged ONCE per AI - reachable?
+// interested? - and remembered, so the AI neither flip-flops nor re-runs the flood fill every tick.
+function pickPowerupTarget(snake, memory, traits, world, threat) {
+  const specials = world.specials;
+  const cfg = POWERUPS.ai;
+  if (!specials || specials.count === 0) {
+    memory.puTarget = null;
+    return null;
+  }
+  if (threat && cfg.ignoreWhenThreatened) return null; // survival first
+  if (memory.puTarget) {
+    const cur = specials.items.get(memory.puTarget.key);
+    if (cur && cur.born === memory.puTarget.born) return cur;
+    memory.puTarget = null; // gone (picked up by someone, or expired)
+  }
+  if (memory.puIgnored.size > 24) memory.puIgnored.clear();
+  const head = snake.head;
+  let best = null;
+  let bestDist = Infinity;
+  for (const item of specials.all()) {
+    const d = manhattan(head, item);
+    if (d > cfg.viewRange || d >= bestDist) continue;
+    if (memory.puIgnored.has(cellKey(item.x, item.y) + '@' + item.born)) continue;
+    best = item;
+    bestDist = d;
+  }
+  if (!best) return null;
+  const id = cellKey(best.x, best.y) + '@' + best.born;
+  const interest = cfg.interest[snake.profile] ?? 0.5;
+  const reachable = inBounds(best.x, best.y)
+    && !world.occupancyMap.has(cellKey(best.x, best.y))
+    && openSpaceScore(best, world.occupancyMap, cfg.reachFillBudget) >= cfg.minSpaceAtTarget;
+  if (!reachable || Math.random() >= interest) {
+    memory.puIgnored.add(id); // remembered: not re-rolled every tick
+    return null;
+  }
+  memory.puTarget = { key: cellKey(best.x, best.y), born: best.born };
   return best;
 }
 
@@ -233,9 +275,10 @@ export function decideAIDirection(snake, world) {
   let prey = findSafePrey(snake, snakes, traits, traits.preyViewRange);
   prey = restrictPreyIfPlayer(snake, prey, traits, world);
   const mode = decideMode(traits, threat, prey);
-  const food = mode === 'forage' ? findNearestFood(head, foodManager, CONFIG.AI_VIEW_RANGE) : null;
-
   const memory = getMemory(snake);
+  const powerup = mode === 'forage' ? pickPowerupTarget(snake, memory, traits, world, threat) : null;
+  if (mode !== 'forage') memory.puTarget = null;
+  const food = mode === 'forage' && !powerup ? findNearestFood(head, foodManager, CONFIG.AI_VIEW_RANGE) : null;
   memory.lastMode = mode;
   memory.lastTargetingPlayer = !!(prey && prey.isPlayer);
 
@@ -286,6 +329,10 @@ export function decideAIDirection(snake, world) {
       const projNow = manhattan(head, preyProjected);
       const projNext = manhattan(next, preyProjected);
       score += (projNow - projNext) * traits.interceptWeight;
+    } else if (powerup) {
+      const distNow = manhattan(head, powerup);
+      const distNext = manhattan(next, powerup);
+      score += (distNow - distNext) * traits.foodWeight * POWERUPS.ai.weight;
     } else if (food) {
       const distNow = manhattan(head, food);
       const distNext = manhattan(next, food);

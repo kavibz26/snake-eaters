@@ -45,6 +45,19 @@ export const POWERUPS = {
   // Normal food is CONFIG.FOOD_SCORE (10) and +1 length.
   mega: { score: 50, grow: 3 },
 
+  // --- AI (single player only) -----------------------------------------------------------------------------
+  // AI snakes follow the SAME pickup / effect rules as the player; this only tunes how much they care.
+  // Survival always comes first: an AI in flee or attack mode, or with a bigger snake in view, ignores items.
+  // Each AI rolls ONCE per item ("am I interested?"), so it sometimes ignores one and never dithers.
+  ai: {
+    viewRange: 10, // Manhattan cells an AI notices an item from
+    interest: { forager: 0.65, hunter: 0.35, cautious: 0.5 }, // chance of going for an item it has noticed
+    weight: 1.0, // pull strength relative to the profile's food weight
+    minSpaceAtTarget: 3, // open cells (small flood fill) needed around an item for it to count as reachable
+    reachFillBudget: 12,
+    ignoreWhenThreatened: true,
+  },
+
   // --- XP (paid once, from the final match result; see js/profile) ---------------------------------------
   xp: { powerupEach: 3, powerupCap: 30, megaEach: 8, megaCap: 40 },
 };

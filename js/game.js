@@ -163,40 +163,47 @@ export class Game {
     // something in isolation - so it's treated as a normal, fair death.
     // The Speed power-up uses this same extra-step mechanism (one extra step every 2nd tick); a snake
     // takes at most ONE extra step per tick, so Boost + Speed together cap at 2 cells/tick.
-    if (player.alive) {
-      const boosting = player.boostTicksLeft > 0;
-      const extra = takesExtraStep(player, this.tickCount);
-      if (player.speedTicksLeft > 0) player.speedTicksLeft--;
+    // AI snakes follow exactly the same rule (a Speed power-up they picked up gives them the same extra step;
+    // they never boost, so it is only ever the power-up).
+    for (const snake of this.snakes) {
+      if (!snake.alive) continue;
+      const boosting = snake.boostTicksLeft > 0;
+      const extra = takesExtraStep(snake, this.tickCount);
+      if (snake.speedTicksLeft > 0) snake.speedTicksLeft--;
       if (extra) {
         const preOcc = buildOccupancyMap(this.snakes);
-        const nh = player.nextHead();
+        const nh = snake.nextHead();
         if (!inBounds(nh.x, nh.y) || preOcc.has(cellKey(nh.x, nh.y))) {
-          if (!this._absorb(player)) {
-            player.kill();
-            this.food.scatterAt(player.corpseFoodCells(), (x, y) => this.food.has(x, y));
-            this._spawnDeathParticles(player.head, player.color);
-            this._endGame(false);
-            return;
+          if (!this._absorb(snake)) {
+            snake.kill();
+            this.food.scatterAt(snake.corpseFoodCells(), (x, y) => this.food.has(x, y));
+            this._spawnDeathParticles(snake.head, snake.color);
+            if (snake.isPlayer) {
+              this._endGame(false);
+              return;
+            }
           }
         } else {
           if (this.food.has(nh.x, nh.y)) {
-            player.grow(1);
-            player.foodEaten++;
-            player.score += CONFIG.FOOD_SCORE;
-            player.justAte = true;
+            snake.grow(1);
+            snake.foodEaten++;
+            snake.score += CONFIG.FOOD_SCORE;
+            snake.justAte = true;
             this.food.removeAt(nh.x, nh.y);
-            this._spawnEatParticles(nh);
-            if (this.onPlayerEvent) this.onPlayerEvent('food');
+            if (snake.isPlayer) {
+              this._spawnEatParticles(nh);
+              if (this.onPlayerEvent) this.onPlayerEvent('food');
+            }
           }
-          this._pickup(player, nh);
-          player.commitMove(nh);
+          this._pickup(snake, nh);
+          snake.commitMove(nh);
         }
       }
       if (boosting) {
-        player.boostTicksLeft--;
-        if (player.boostTicksLeft === 0) player.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
-      } else if (player.boostCooldownLeft > 0) {
-        player.boostCooldownLeft--;
+        snake.boostTicksLeft--;
+        if (snake.boostTicksLeft === 0) snake.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
+      } else if (snake.boostCooldownLeft > 0) {
+        snake.boostCooldownLeft--;
       }
     }
 
@@ -215,6 +222,7 @@ export class Game {
           occupancyMap: preMoveOccupancy,
           matchTicks: this.tickCount,
           playerPressure,
+          specials: this.specials, // AI may head for a nearby power-up (see js/ai.js, POWERUPS.ai)
         });
         snake.setDirection(dir);
       }
@@ -240,7 +248,7 @@ export class Game {
           if (this.onPlayerEvent) this.onPlayerEvent('food');
         }
       }
-      if (snake.isPlayer) this._pickup(snake, nh); // special items are for the player only; AI ignore them
+      this._pickup(snake, nh); // same rule for everyone: whoever reaches an item first gets it, exactly once
     }
 
     // 4. Solid-body occupancy for this tick (tail cells excluded unless growing).
@@ -329,21 +337,21 @@ export class Game {
     }
 
     // 7b. Power-ups: Magnet pull (player only), spawn / expire special items, end-of-tick effect timers.
-    if (player.alive) {
-      magnetPull({
-        snakes: [player],
-        food: this.food,
-        isBlocked: (x, y) => this._isCellBlocked(x, y),
-        collect: (snake, f) => {
-          snake.grow(1);
-          snake.foodEaten++;
-          snake.score += CONFIG.FOOD_SCORE;
-          snake.justAte = true;
+    magnetPull({
+      snakes: this.snakes.filter((s) => s.alive),
+      food: this.food,
+      isBlocked: (x, y) => this._isCellBlocked(x, y),
+      collect: (snake, f) => {
+        snake.grow(1);
+        snake.foodEaten++;
+        snake.score += CONFIG.FOOD_SCORE;
+        snake.justAte = true;
+        if (snake.isPlayer) {
           this._spawnEatParticles(f);
           if (this.onPlayerEvent) this.onPlayerEvent('food');
-        },
-      });
-    }
+        }
+      },
+    });
     this.specials.update({ tick: this.tickCount, snakes: this.snakes, isBlocked: (x, y) => this._isCellBlocked(x, y) });
     for (const s of this.snakes) if (s.alive) endOfTickEffects(s);
 
@@ -411,7 +419,7 @@ export class Game {
     const res = collectSpecial(snake, item.type);
     if (!res) return;
     this._spawnPickupEffect(cell, item.type);
-    if (this.onPlayerEvent) this.onPlayerEvent(res.kind === 'mega' ? 'mega' : 'powerup');
+    if (snake.isPlayer && this.onPlayerEvent) this.onPlayerEvent(res.kind === 'mega' ? 'mega' : 'powerup'); // XP feedback is the player's only
   }
 
   _spawnPickupEffect(cell, type) {

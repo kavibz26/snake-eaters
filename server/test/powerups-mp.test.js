@@ -116,12 +116,13 @@ test('forged messages: a client cannot grant itself power-ups, effects, score or
   for (const s of snaps) {
     const me = s.snakes.find((x) => x.id === hostId);
     assert.equal(me.e, undefined, 'no effect was granted');
-    assert.equal(me.sc, 0, 'no score was granted');
+    assert.ok(me.sc % CONFIG.FOOD_SCORE === 0 && me.sc <= 10 * CONFIG.FOOD_SCORE, 'no score beyond ordinary food (a legitimate snack near the spawn is fine)');
   }
   const sim = h.lobby().match;
   const snake = sim.byId.get(hostId);
   assert.equal(snake.shieldTicksLeft + snake.speedTicksLeft + snake.magnetTicksLeft, 0);
   assert.equal(snake.powerupsCollected + snake.megaCollected, 0);
+  assert.equal(snake.score, snake.foodEaten * CONFIG.FOOD_SCORE + snake.eliminations * CONFIG.KILL_SCORE, 'every point is explained by real food / kills, none by the forged messages');
   assert.equal(host.closed, false);
 });
 
