@@ -382,7 +382,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       li.appendChild(miniSkin(p.skinId));
       const name = document.createElement('span');
       name.className = 'player-name';
-      name.textContent = p.name;
+      name.textContent = p.bot ? `🤖 ${p.name}` : p.name;
       li.appendChild(name);
       const tags = [];
       if (p.id === you) tags.push(['YOU', 'tag--you']);
@@ -626,7 +626,7 @@ export function initMultiplayer({ showScreen, netGame, getSelectedSkin, activate
       main.className = 'standing-main';
       const name = document.createElement('span');
       name.className = 'player-name';
-      name.textContent = r.id === you ? `${r.name} (you)` : r.name;
+      name.textContent = r.id === you ? `${r.name} (you)` : (r.bot ? `🤖 ${r.name}` : r.name);
       const stats = document.createElement('span');
       stats.className = 'standing-stats';
       // Only figures the server actually reports: score, kills and final length.

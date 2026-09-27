@@ -19,10 +19,10 @@ function isOriginAllowed(origin, allowed) {
 
 export function createServer({
   port = 8787, allowedOrigins, trustProxy = false, lobbyCount, maxPlayers, startDelayMs, fullStartDelayMs,
-  maxConnsPerIp = DEFAULT_MAX_CONNS_PER_IP,
+  maxConnsPerIp = DEFAULT_MAX_CONNS_PER_IP, botsEnabled, botDifficulty,
 } = {}) {
   const origins = allowedOrigins || DEFAULT_ORIGINS;
-  const manager = new LobbyManager({ lobbyCount, maxPlayers, startDelayMs, fullStartDelayMs });
+  const manager = new LobbyManager({ lobbyCount, maxPlayers, startDelayMs, fullStartDelayMs, botsEnabled, botDifficulty });
   const connsByIp = new Map();
 
   const httpServer = http.createServer((req, res) => {
@@ -232,6 +232,10 @@ if (isMain) {
     port,
     allowedOrigins: [...DEFAULT_ORIGINS, '*localhost', ...allowed],
     trustProxy: process.env.TRUST_PROXY === '1',
+    // Bots keep a solo player's match playable; on by default for the real deployed server (set
+    // BOTS_ENABLED=0 to turn them off). See server/lobbies.js and server/bots/config.js.
+    botsEnabled: process.env.BOTS_ENABLED !== '0',
+    botDifficulty: process.env.BOT_DIFFICULTY,
   });
   server.listen().then((p) => console.log(`Snake Eaters server listening on :${p}`));
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => server.close().then(() => process.exit(0)));

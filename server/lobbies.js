@@ -19,6 +19,7 @@ import {
   sanitizeName, sanitizeChat, mapForLobby,
 } from './protocol.js';
 import { buildMap } from '../js/maps/maps.js';
+import { SOLO_BOT_COUNT, DEFAULT_DIFFICULTY, botName } from './bots/config.js';
 
 const OPEN = 1;
 
@@ -77,7 +78,7 @@ export class Lobby {
       min: MIN_PLAYERS_TO_START,
       startsInMs: this.state === 'countdown' ? Math.max(0, this.startAt - Date.now()) : 0,
       players: [...this.players.values()].map((p) => ({
-        id: p.id, name: p.name, skinId: p.skinId, connected: p.connected,
+        id: p.id, name: p.name, skinId: p.skinId, connected: p.connected, bot: !!p.bot,
       })),
     };
   }
@@ -118,6 +119,61 @@ export class Lobby {
       if (!names.has(candidate.toLowerCase())) return candidate;
     }
     return name;
+  }
+
+  // --- bots ------------------------------------------------------------------------------
+  // A bot occupies a roster slot exactly like a human, minus a socket: same shape (id, name,
+  // skinId, connected, token), so match/roster/results code needs no bot-specific branches to
+  // seat one. `bot: true` is the only thing that marks it as one, and it is never sent to any
+  // client except as that same public flag - the bot's token never leaves the server, so a
+  // forged rejoin for its id fails the exact same way an invalid human session would.
+
+  addBot(index) {
+    const id = 'b_' + randomBytes(4).toString('hex');
+    const bot = {
+      id,
+      token: randomBytes(16).toString('hex'),
+      name: this._uniqueName(botName(index)),
+      skinId: this._freeSkin(DEFAULT_SKIN_ID),
+      ws: null,
+      connected: true, // a bot can never disconnect
+      dcTimer: null,
+      chatBucket: { tokens: 0, last: Date.now() },
+      bot: true,
+    };
+    this.players.set(id, bot);
+    return bot;
+  }
+
+  // Bots keep a solo human's match playable. Added once, the moment the very first human joins
+  // an otherwise empty (bot-less) lobby - never topped up again as the roster changes from there
+  // (a second human joining just joins the existing lobby/match; existing bots are left alone).
+  _maybeFillBots() {
+    if (!this.manager.botsEnabled || this.state === 'running') return;
+    const values = [...this.players.values()];
+    if (values.some((p) => p.bot)) return; // already filled once for this occupancy
+    if (values.filter((p) => !p.bot).length !== 1) return; // only a lone first human triggers this
+    const need = Math.min(SOLO_BOT_COUNT, this.max - values.length);
+    for (let i = 0; i < need; i++) this.addBot(i);
+  }
+
+  // Bots exist only so a human has someone to play against. Once every human is gone there is
+  // nobody left for them to play for, so a running match ends right now (instead of bots fighting
+  // on alone for up to 5 minutes) and a not-yet-started lobby resets immediately - either way the
+  // next human to join gets a completely fresh, clean bot fill.
+  _cullBotsIfNoHumans() {
+    const values = [...this.players.values()];
+    if (values.some((p) => !p.bot)) return; // a human is still here
+    if (!values.some((p) => p.bot)) return; // nothing to clean up
+    if (this.state === 'running' && this.match) {
+      this._endMatch();
+      return;
+    }
+    clearTimeout(this.countdownTimer);
+    this.countdownTimer = null;
+    this.players.clear();
+    this.chatLog = [];
+    this.state = 'waiting';
   }
 
   broadcast(msg) {
@@ -196,6 +252,7 @@ export class Lobby {
     if (player.dcTimer) clearTimeout(player.dcTimer);
     this.players.delete(id);
     if (this.state === 'running' && this.match) this.match.forfeit(id);
+    if (!player.bot) this._cullBotsIfNoHumans(); // the departing player was human: check if any are left
     if (this.players.size === 0) this.chatLog = []; // an empty lobby starts with a clean chat
     this._changed();
   }
@@ -237,7 +294,7 @@ export class Lobby {
       tickMs: CONFIG.TICK_MS,
       map: this.mapId, // the client rebuilds the obstacle layout from this id ...
       mh: buildMap(this.mapId).hash, // ... and can verify it matches the server's
-      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId })),
+      players: [...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId, bot: !!p.bot })),
       you: player.id,
       events: this.match.eventSummary(), // already-fired events: a reconnecting client marks them seen, never re-announces
       snap: this.match.snapshot({ full: true }), // complete state; per-tick snapshots are deltas
@@ -260,7 +317,10 @@ export class Lobby {
       this._changed();
       return;
     }
-    this.match = new MatchSim([...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId })), { mapId: this.mapId });
+    this.match = new MatchSim(
+      [...this.players.values()].map((p) => ({ id: p.id, name: p.name, skinId: p.skinId, bot: !!p.bot })),
+      { mapId: this.mapId, botDifficulty: this.manager.botDifficulty },
+    );
     this.state = 'running'; // locked from this moment
     this.phase = 'starting';
     this.startsAt = Date.now() + COUNTDOWN_MS;
@@ -354,9 +414,14 @@ export class LobbyManager {
   constructor({
     lobbyCount = LOBBY_COUNT, maxPlayers = MAX_PLAYERS_PER_LOBBY,
     startDelayMs = LOBBY_START_DELAY_MS, fullStartDelayMs = LOBBY_FULL_START_DELAY_MS,
+    // Off unless a caller explicitly turns it on, so every existing test (none of which passes this)
+    // keeps behaving exactly as before. The real server (server/index.js) opts in by default.
+    botsEnabled = false, botDifficulty = DEFAULT_DIFFICULTY,
   } = {}) {
     this.startDelayMs = startDelayMs;
     this.fullStartDelayMs = fullStartDelayMs;
+    this.botsEnabled = botsEnabled;
+    this.botDifficulty = botDifficulty;
     // One skin per player, so a lobby can never hold more players than there are skins.
     this.maxPlayers = Math.max(MIN_PLAYERS_TO_START, Math.min(maxPlayers, SKINS.length));
     this.lobbies = new Map();
@@ -409,6 +474,7 @@ export class LobbyManager {
     if (lobby.count >= lobby.max) return { error: { code: 'lobby_full', message: 'That lobby is full.' } };
     this.browsers.delete(ws);
     const player = lobby.addPlayer(ws, name, skin);
+    lobby._maybeFillBots(); // a lone human in an otherwise empty lobby gets bots before anyone is told
     return { lobby, player };
   }
 

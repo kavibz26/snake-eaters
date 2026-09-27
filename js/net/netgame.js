@@ -85,6 +85,7 @@ export class NetGame extends Game {
         skin,
         color: skin.ui,
         isPlayer: p.id === msg.you, // the base renderer draws our pulsing ring for us
+        bot: !!p.bot, // server-reported only - purely cosmetic (a 🤖 marker), never affects control or rules
         alive: true,
         body: EMPTY_BODY,
         from: EMPTY_BODY,
@@ -341,7 +342,7 @@ export class NetGame extends Game {
     const rows = snap.lb.map((idx, pos) => {
       const s = snap.snakes[idx];
       const v = this.views.get(s.id);
-      return { id: s.id, name: v ? v.name : '?', color: v ? v.color : '#fff', score: s.sc, alive: s.a === 1, isMe: s.id === this.myId, rank: pos + 1 };
+      return { id: s.id, name: v ? v.name : '?', bot: v ? !!v.bot : false, color: v ? v.color : '#fff', score: s.sc, alive: s.a === 1, isMe: s.id === this.myId, rank: pos + 1 };
     });
     this.onBoard(rows);
   }
@@ -497,7 +498,8 @@ export class NetGame extends Game {
     const cs = CONFIG.CELL_SIZE;
     const head = v.body[0];
     const isMe = v.id === this.myId;
-    const label = (isMe ? `${v.name} (YOU)` : v.name) + (v.frozen ? ' - reconnecting' : '');
+    const name = v.bot ? `🤖 ${v.name}` : v.name;
+    const label = (isMe ? `${name} (YOU)` : name) + (v.frozen ? ' - reconnecting' : '');
 
     // The board is drawn in a fixed logical resolution and CSS-scaled to fit the
     // screen, so on a phone (~0.3x) an 11px tag would be ~3px tall. Scale tags up

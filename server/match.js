@@ -15,11 +15,16 @@ import { dirIndex, encodeBodyDelta } from '../js/net/snapcodec.js';
 import { PowerUpManager, magnetPull } from '../js/powerups/manager.js';
 import { POWERUP_INDEX } from '../js/powerups/config.js';
 import { collectSpecial, takesExtraStep, absorbLethal, endOfTickEffects } from '../js/powerups/effects.js';
+import { decideBotDirection } from './bots/controller.js';
+import { difficultyConfig } from './bots/config.js';
+
+const OBSTACLE = { isObstacle: true }; // occupancy-map owner for obstacle cells (bots treat them as solid)
 
 export class MatchSim {
-  // entries: [{ id, name, skinId }]   options: { rng, mapId }
+  // entries: [{ id, name, skinId, bot? }]   options: { rng, mapId, botDifficulty }
   //   rng: tests inject a seeded generator for the power-up spawner
   //   mapId: which map this match is played on (the lobby's configured map); unknown ids fall back to Classic
+  //   botDifficulty: name of a server/bots/config.js DIFFICULTIES entry; ignored when nobody is a bot
   constructor(entries, options = {}) {
     this.tickCount = 0;
     this.events = [];
@@ -34,6 +39,8 @@ export class MatchSim {
     this.food = new FoodManager(CONFIG.GRID_COLS, CONFIG.GRID_ROWS);
     this.matchEvents = new MatchEvents(); // authoritative: clients only receive events, they can never award them
     this.specials = new PowerUpManager({ rng: options.rng || Math.random }); // server-owned: where items spawn, who collects them
+    this.botDifficulty = difficultyConfig(options.botDifficulty);
+    this.hasBots = entries.some((e) => e.bot); // skips the whole bot-decision step for ordinary human-only matches
 
     this._spawnSnakes(entries);
     for (const s of this.snakes) this._seedSpawnFood(s);
@@ -136,6 +143,26 @@ export class MatchSim {
         if (snake.boostTicksLeft === 0) snake.boostCooldownLeft = CONFIG.BOOST_COOLDOWN_TICKS;
       } else if (snake.boostCooldownLeft > 0) {
         snake.boostCooldownLeft--;
+      }
+    }
+
+    // 1b. Bot decisions, based on current (pre-move) positions - exactly the same heuristic AI
+    // single-player already plays against (js/ai.js), just running here instead of in a browser.
+    // Skipped entirely for ordinary human-only matches (this.hasBots is decided once, at spawn).
+    if (this.hasBots) {
+      const preMoveOccupancy = buildOccupancyMap(this.snakes);
+      for (const k of this.obstacles) preMoveOccupancy.set(k, OBSTACLE);
+      for (const snake of this.snakes) {
+        if (!snake.alive || snake.frozen || !snake.isBot) continue;
+        const dir = decideBotDirection(snake, {
+          snakes: this.snakes,
+          foodManager: this.food,
+          occupancyMap: preMoveOccupancy,
+          matchTicks: this.tickCount,
+          specials: this.specials,
+          terrain: this.obstacles,
+        }, this.botDifficulty);
+        snake.setDirection(dir);
       }
     }
 
@@ -409,6 +436,7 @@ export class MatchSim {
 
     const dirNames = Object.keys(CONFIG.DIRECTIONS);
     const taken = new Set(); // cells used by snakes already placed
+    let botIndex = 0;
     entries.forEach((entry, i) => {
       const zone = chosen[i];
       const length = CONFIG.PLAYER_INITIAL_LENGTH; // everyone starts equal
@@ -422,10 +450,16 @@ export class MatchSim {
       for (let seg = 0; seg < length; seg++) cells.push({ x: spot.cx - spot.dir.x * seg, y: spot.cy - spot.dir.y * seg });
       for (const c of cells) taken.add(cellKey(c.x, c.y));
 
-      const snake = new Snake({ isPlayer: true, cells, direction: spot.dir, skin: getSkinById(entry.skinId), profile: null });
+      // isPlayer:false for everyone here - it exists purely for js/ai.js's single-player "protect the
+      // lone human" rule (restrictPreyIfPlayer), which has no place in multiplayer: humans and bots are
+      // ordinary, symmetric opponents to each other.
+      const pool = this.botDifficulty.profiles;
+      const profile = entry.bot ? pool[botIndex++ % pool.length] : null;
+      const snake = new Snake({ isPlayer: false, cells, direction: spot.dir, skin: getSkinById(entry.skinId), profile });
       snake.playerId = entry.id;
       snake.name = entry.name;
       snake.skinId = entry.skinId;
+      snake.isBot = !!entry.bot;
       snake.frozen = false;
       snake.lastSeq = 0;
       snake.joinIndex = i;
@@ -584,6 +618,7 @@ export class MatchSim {
       alive: s.alive,
       diedTick: s.alive ? Infinity : (s.diedTick ?? 0),
       joinIndex: s.joinIndex,
+      bot: !!s.isBot,
       // Dev telemetry only (see js/events/telemetry.js) - additive fields, ignored by the normal results screen.
       food: s.foodEaten,
       peakLength: Math.max(this.matchEvents.peakOf(s.playerId), s.length),
@@ -606,6 +641,11 @@ export class MatchSim {
       powerups: r.powerups,
       mega: r.mega,
       survived: r.alive,
+      bot: r.bot,
+      // Dev telemetry only (see js/events/telemetry.js) - these were computed above but never actually
+      // reached this returned array; fixed here while this object literal is already being touched.
+      food: r.food,
+      peakLength: r.peakLength,
     }));
   }
 }

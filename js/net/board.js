@@ -15,7 +15,7 @@ export function createBoard(root) {
     dot.style.background = row.color;
     const name = document.createElement('span');
     name.className = 'board-name';
-    name.textContent = row.name;
+    name.textContent = row.bot ? `🤖 ${row.name}` : row.name;
     const score = document.createElement('span');
     score.className = 'board-score';
     li.append(rank, dot, name, score);
