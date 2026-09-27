@@ -41,10 +41,17 @@ export class MatchEvents {
     return ev;
   }
 
-  // The simulation calls this from its kill-credit path (it knows who eliminated whom).
-  noteKill(killerId, victimId, tick = this.tick) {
+  // The simulation calls this from its kill-credit path (it knows who eliminated whom). `aliveCount`
+  // is optional context for dev telemetry only (see js/events/telemetry.js) - it changes no semantics.
+  noteKill(killerId, victimId, tick = this.tick, aliveCount = null) {
     this.tick = tick;
-    this._fire('first_blood', killerId, { v: victimId });
+    this._fire('first_blood', killerId, aliveCount != null ? { v: victimId, a: aliveCount } : { v: victimId });
+  }
+
+  // How long this id's snake has been, at its longest so far this match (dev telemetry only).
+  peakOf(id) {
+    const s = this.stats.get(id);
+    return s ? s.peak : 0;
   }
 
   // Once per tick, after the tick's moves and deaths are resolved.
@@ -61,16 +68,16 @@ export class MatchEvents {
       const st = this._stat(id);
       const len = s.length;
       if (len > st.peak) st.peak = len;
-      if (s.foodEaten >= c.food_hunter.food) this._fire('food_hunter', id, { n: c.food_hunter.food });
-      if (s.powerupsCollected + s.megaCollected >= c.power_collector.powerups) this._fire('power_collector', id, { n: c.power_collector.powerups });
-      if (len >= c.giant_snake.length) this._fire('giant_snake', id, { n: c.giant_snake.length });
-      if (tick >= this.survivorTicks) this._fire('survivor', id, { n: c.survivor.seconds });
-      if (s.eliminations > 0 && !this.fired.has('first_blood')) this._fire('first_blood', id); // safety net if a kill path skipped noteKill
+      if (s.foodEaten >= c.food_hunter.food) this._fire('food_hunter', id, { n: c.food_hunter.food, a: alive });
+      if (s.powerupsCollected + s.megaCollected >= c.power_collector.powerups) this._fire('power_collector', id, { n: c.power_collector.powerups, a: alive });
+      if (len >= c.giant_snake.length) this._fire('giant_snake', id, { n: c.giant_snake.length, a: alive });
+      if (tick >= this.survivorTicks) this._fire('survivor', id, { n: c.survivor.seconds, a: alive });
+      if (s.eliminations > 0 && !this.fired.has('first_blood')) this._fire('first_blood', id, { a: alive }); // safety net if a kill path skipped noteKill
       if (sampleRanks) {
         let rank = 1;
         for (const o of snakes) if (o.alive && o.length > len) rank++;
         if (rank > alive * c.comeback.lowRankFraction) st.low = st.low === null ? len : Math.min(st.low, len);
-        else if (rank === 1 && st.low !== null && len - st.low >= c.comeback.minLengthGain) this._fire('comeback', id, { from: st.low });
+        else if (rank === 1 && st.low !== null && len - st.low >= c.comeback.minLengthGain) this._fire('comeback', id, { from: st.low, a: alive });
       }
     }
   }
@@ -85,6 +92,7 @@ export class MatchEvents {
     let maxLen = 0;
     let maxFood = 0;
     const peaks = new Map();
+    const aliveAtEnd = snakes.filter((s) => s.alive).length; // dev telemetry context only
     for (const s of snakes) {
       const id = idOf(s);
       const peak = Math.max(this._stat(id).peak, s.alive ? s.length : 0);
@@ -94,8 +102,8 @@ export class MatchEvents {
     }
     for (const s of snakes) {
       const id = idOf(s);
-      if (maxLen > c.longest_snake.minLength && peaks.get(id) === maxLen) this._fire('longest_snake', id, { n: maxLen });
-      if (maxFood >= c.most_food.minFood && s.foodEaten === maxFood) this._fire('most_food', id, { n: maxFood });
+      if (maxLen > c.longest_snake.minLength && peaks.get(id) === maxLen) this._fire('longest_snake', id, { n: maxLen, a: aliveAtEnd });
+      if (maxFood >= c.most_food.minFood && s.foodEaten === maxFood) this._fire('most_food', id, { n: maxFood, a: aliveAtEnd });
     }
   }
 

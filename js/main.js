@@ -9,6 +9,8 @@ import { initProfileUI } from './profile/ui.js';
 import { createXpFeed, renderRewards, createLevelUpModal } from './profile/feedback.js';
 import { fromSinglePlayer, fromMultiplayer } from './profile/results.js';
 import { createEventToaster, renderEventSummary } from './events/ui.js';
+import { buildMatchTelemetry, isTelemetryEnabled, logMatchTelemetry } from './events/telemetry.js';
+import { CONFIG } from './config.js';
 
 const screens = {
   start: document.getElementById('startScreen'),
@@ -205,6 +207,27 @@ const progress = {
     // The final, authoritative list of events (players identified by their names from the results).
     const names = new Map((msg.results || []).map((r) => [r.id, r.name]));
     renderEventSummary(document.getElementById('mpEvents'), msg.events || [], { nameOf: (id) => (id === myId ? 'You' : (names.get(id) || '?')), myId });
+
+    // Dev-only match telemetry (see js/events/telemetry.js): never shown to a normal player, never sent
+    // anywhere, gated behind an explicit ?telemetry=1. Used to tune js/events/config.js thresholds.
+    if (isTelemetryEnabled()) {
+      const snakesData = (msg.results || []).map((r) => ({
+        id: r.id,
+        name: r.id === myId ? 'You' : (r.name || '?'),
+        food: r.food ?? 0,
+        powerups: (r.powerups ?? 0) + (r.mega ?? 0),
+        peakLength: r.peakLength ?? r.length ?? 0,
+        kills: r.kills ?? 0,
+      }));
+      const matchSeconds = Math.max(0, Math.round((performance.now() - mpStartedAt) / 1000));
+      logMatchTelemetry(buildMatchTelemetry({
+        log: msg.events || [],
+        snakes: snakesData,
+        durationTicks: Math.round((matchSeconds * 1000) / CONFIG.TICK_MS),
+        focusId: myId,
+      }));
+    }
+
     const key = mpKey;
     mpKey = null; // consumed: a second `over` for the same match cannot pay out again
     if (!key) return; // duplicate / unknown match: nothing to reward and the shown rewards stay untouched

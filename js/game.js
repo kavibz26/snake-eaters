@@ -6,6 +6,7 @@ import { buildMap, DEFAULT_MAP_ID, isKnownMap } from './maps/maps.js';
 import { findSpawn } from './maps/spawn.js';
 import { drawObstacles } from './maps/render.js';
 import { MatchEvents } from './events/tracker.js';
+import { buildMatchTelemetry, isTelemetryEnabled, logMatchTelemetry } from './events/telemetry.js';
 import { decideAIDirection, getAIDisplayState } from './ai.js';
 import { SKINS, DEFAULT_SKIN_ID, getSkinById } from './skins.js';
 import { paintSnakeSegment, roundedSquare } from './snakeRender.js';
@@ -473,7 +474,8 @@ export class Game {
   // (running into a bigger snake's body, or a head-to-head/crossing win):
   // same growth bonus, same score, same elimination credit.
   _creditKill(winner, loser) {
-    this.matchEvents.noteKill(winner.id, loser.id, this.tickCount);
+    const aliveCount = this.snakes.filter((s) => s.alive).length; // dev telemetry context only (see js/events/telemetry.js)
+    this.matchEvents.noteKill(winner.id, loser.id, this.tickCount, aliveCount);
     winner.grow(Math.ceil(loser.length * CONFIG.KILL_GROWTH_RATIO));
     winner.eliminations += 1;
     winner.score += CONFIG.KILL_SCORE;
@@ -511,6 +513,22 @@ export class Game {
     this.matchEvents.finalize(this.snakes, (s) => s.id, this.tickCount);
     this._emitMatchEvents();
     this._updateHud(victory ? 'Victory!' : 'Eliminated');
+    if (isTelemetryEnabled()) {
+      const snakes = this.snakes.map((s) => ({
+        id: s.id,
+        name: this.eventName(s.id),
+        food: s.foodEaten,
+        powerups: s.powerupsCollected + s.megaCollected,
+        peakLength: Math.max(this.matchEvents.peakOf(s.id), s.length),
+        kills: s.eliminations,
+      }));
+      logMatchTelemetry(buildMatchTelemetry({
+        log: this.matchEvents.summary(),
+        snakes,
+        durationTicks: this.tickCount,
+        focusId: player.id,
+      }));
+    }
     if (this.onGameOver) {
       this.onGameOver({
         victory,

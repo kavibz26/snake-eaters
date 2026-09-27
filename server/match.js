@@ -281,8 +281,15 @@ export class MatchSim {
   }
 
   // Everything that has fired so far (sent in `over`, and to a reconnecting player so they never see a repeat).
+  // `a` (snakes alive when it fired) rides along too - dev telemetry context only, ignored by every existing
+  // consumer (profile, reconnect recap, results screen) since they only ever read k/id/v/t.
   eventSummary() {
-    return this.matchEvents.summary().map((e) => (e.v !== undefined ? { k: e.k, id: e.id, v: e.v, t: e.t } : { k: e.k, id: e.id, t: e.t }));
+    return this.matchEvents.summary().map((e) => {
+      const out = { k: e.k, id: e.id, t: e.t };
+      if (e.v !== undefined) out.v = e.v;
+      if (e.a !== undefined) out.a = e.a;
+      return out;
+    });
   }
 
   _resolveCollisionGroup(group, deaths, bounced) {
@@ -330,7 +337,8 @@ export class MatchSim {
   }
 
   _creditKill(winner, loser) {
-    this.matchEvents.noteKill(winner.playerId, loser.playerId, this.tickCount);
+    const aliveCount = this.snakes.filter((s) => s.alive).length; // dev telemetry context only (see js/events/telemetry.js)
+    this.matchEvents.noteKill(winner.playerId, loser.playerId, this.tickCount, aliveCount);
     winner.grow(Math.ceil(loser.length * CONFIG.KILL_GROWTH_RATIO));
     winner.eliminations += 1;
     winner.score += CONFIG.KILL_SCORE;
@@ -576,6 +584,9 @@ export class MatchSim {
       alive: s.alive,
       diedTick: s.alive ? Infinity : (s.diedTick ?? 0),
       joinIndex: s.joinIndex,
+      // Dev telemetry only (see js/events/telemetry.js) - additive fields, ignored by the normal results screen.
+      food: s.foodEaten,
+      peakLength: Math.max(this.matchEvents.peakOf(s.playerId), s.length),
     }));
     rows.sort((a, b) => {
       if (a.id === this.winnerId) return -1;
