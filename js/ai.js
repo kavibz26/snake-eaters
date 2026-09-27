@@ -54,7 +54,9 @@ const PROFILE_TRAITS = {
   },
 };
 
-function manhattan(a, b) {
+// Exported so server/bots/controller.js can reuse the exact same distance math for its own
+// (multiplayer-only) target search, instead of duplicating it - the function itself is unchanged.
+export function manhattan(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
@@ -89,7 +91,8 @@ function clampToGrid(cell) {
 
 // Where a snake will likely be in `steps` ticks if it keeps its current
 // heading - used to aim at where a target is *going*, not where it stood.
-function projectPosition(snakeLike, steps) {
+// Exported for the same reason as manhattan() above - reused, not duplicated, by the bot controller.
+export function projectPosition(snakeLike, steps) {
   return clampToGrid({
     x: snakeLike.head.x + snakeLike.direction.x * steps,
     y: snakeLike.head.y + snakeLike.direction.y * steps,
@@ -239,7 +242,10 @@ function pickPowerupTarget(snake, memory, traits, world, threat) {
 
 // The single most urgent bigger snake in view, "urgency" favoring one that's
 // both close AND actually bearing down on us over one that's merely nearby.
-function findNearestThreat(snake, snakes, viewRange) {
+// Exported for the same reason as manhattan()/projectPosition() above - server/bots/controller.js
+// reuses this exact threat search for its own (tighter, multiplayer-specific) "is this danger
+// immediate enough to override an attack" check, instead of duplicating it.
+export function findNearestThreat(snake, snakes, viewRange) {
   let best = null;
   let bestUrgency = Infinity;
   for (const other of snakes) {
