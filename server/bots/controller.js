@@ -54,7 +54,9 @@ function mistake(snake) {
 // Highest priority, always: a bigger snake genuinely close, or a bit further away but visibly closing
 // in. Deliberately independent of - and tighter than - js/ai.js's own ambient threatViewRange check, so
 // a bot does not automatically abandon a good attack just because SOME bigger snake exists in view.
-function immediateDanger(snake, snakes, huntCfg) {
+// Exported so tests can recognise exactly when decideBotDirection hands a decision entirely to
+// decideAIDirection un-throttled (server/test/bots-movement.test.js), instead of re-approximating it.
+export function immediateDanger(snake, snakes, huntCfg) {
   const threat = findNearestThreat(snake, snakes, huntCfg.dangerClosingRange);
   if (!threat) return false;
   return threat.dist <= huntCfg.dangerRange || (threat.closingIn && threat.dist <= huntCfg.dangerClosingRange);
@@ -183,6 +185,57 @@ function finish(snake, difficulty, dir) {
   return Math.random() < difficulty.mistakeChance ? mistake(snake) : dir;
 }
 
+// --- movement pipeline: turn-rate bookkeeping ----------------------------------------------------
+// js/ai.js's own decideAIDirection() holds a heading for at least AI_MIN_TURN_GAP ticks before
+// allowing another turn (its own aiMemory.sinceTurn), unless continuing straight is itself an
+// emergency. Hunting (pursue()/interceptDirection above) has no such gap of its own: left alone, it
+// can produce a brand-new steering direction on every single tick. That is not a priority problem, but
+// a movement one - the Speed power-up's extra pre-step (server/match.js tick(), before bot decisions
+// run) moves using whatever direction was already committed BEFORE this tick, so a direction that
+// changes on every tick can make that extra step and this tick's normal step point different ways,
+// and the net head displacement for the tick looks diagonal even though neither sub-step actually was.
+// This tracks the SAME rule, independently of js/ai.js's own counter (which only advances when IT is
+// called, so it cannot by itself stay in sync with a hunting-driven turn), so it applies no matter
+// which of the branches below produced the final direction.
+const turnMemory = new WeakMap();
+function getTurnState(snake) {
+  let t = turnMemory.get(snake);
+  if (!t) {
+    t = { sinceTurn: 99 }; // large: a bot's very first-ever decision is never gated (matches js/ai.js)
+    turnMemory.set(snake, t);
+  }
+  return t;
+}
+function isTurn(snake, dir) {
+  return dir.x !== snake.direction.x || dir.y !== snake.direction.y;
+}
+
+// Keeps the counter in sync with a direction that was already decided safely elsewhere (immediate
+// danger, handed entirely to decideAIDirection's own emergency-aware logic) - recorded, never overridden.
+function noteTurn(snake, dir) {
+  const state = getTurnState(snake);
+  state.sinceTurn = isTurn(snake, dir) ? 0 : state.sinceTurn + 1;
+}
+
+// Enforces the gap: a turn is held back (the snake just continues straight) unless it has already held
+// its current heading long enough, or continuing straight would itself run into a wall, obstacle or
+// body (an emergency turn is always allowed, exactly like js/ai.js's own override).
+function throttleTurn(snake, dir, occupancyMap) {
+  const state = getTurnState(snake);
+  if (!isTurn(snake, dir)) {
+    state.sinceTurn++;
+    return dir;
+  }
+  const straightNext = { x: snake.head.x + snake.direction.x, y: snake.head.y + snake.direction.y };
+  const emergency = !inBounds(straightNext.x, straightNext.y) || occupancyMap.has(cellKey(straightNext.x, straightNext.y));
+  if (!emergency && state.sinceTurn < CONFIG.AI_MIN_TURN_GAP) {
+    state.sinceTurn++;
+    return snake.direction;
+  }
+  state.sinceTurn = 0;
+  return dir;
+}
+
 // snake: a bot's Snake (isBot, profile already set - see MatchSim._spawnSnakes).
 // world: the same shape js/game.js already builds for single-player AI (snakes, foodManager,
 //   occupancyMap, matchTicks, specials, terrain).
@@ -194,11 +247,12 @@ export function decideBotDirection(snake, world, difficulty) {
     const hunt = getHunt(snake);
     hunt.targetId = null;
     hunt.lockTicksLeft = 0; // real danger: abandon any chase immediately, decideAIDirection handles survival
-    return finish(snake, difficulty, decideAIDirection(snake, world));
+    const dir = finish(snake, difficulty, decideAIDirection(snake, world));
+    noteTurn(snake, dir);
+    return dir;
   }
 
   const attack = pursue(snake, world, difficulty, huntCfg);
-  if (attack) return finish(snake, difficulty, attack);
-
-  return finish(snake, difficulty, decideAIDirection(snake, world));
+  const dir = finish(snake, difficulty, attack || decideAIDirection(snake, world));
+  return throttleTurn(snake, dir, world.occupancyMap);
 }
