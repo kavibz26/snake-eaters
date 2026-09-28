@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { harness, sleep, IDLE, PROTOCOL_VERSION } from './helpers.js';
 import { LobbyManager } from '../lobbies.js';
 import { LOBBY_COUNT, MAX_PLAYERS_PER_LOBBY } from '../protocol.js';
+import { SKINS } from '../../js/skins.js';
 
 // Every test here runs against a fresh server that never auto-starts a match.
 const h = harness(IDLE);
@@ -40,8 +41,8 @@ test('lobby count and capacity are configured in one place and can be changed', 
   assert.ok(list.lobbies.every((l) => l.m === 4));
 
   // capacity can never exceed the number of skins (one per player)
-  const big = new LobbyManager({ lobbyCount: 2, maxPlayers: 50 });
-  assert.equal(big.maxPlayers, 8);
+  const big = new LobbyManager({ lobbyCount: 2, maxPlayers: SKINS.length + 50 });
+  assert.equal(big.maxPlayers, SKINS.length);
   big.shutdown();
 });
 

@@ -317,11 +317,24 @@ body {
   margin: 0 2px;
 }
 
+.skin-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skin-group-heading {
+  margin: 18px 0 2px;
+}
+.skin-group-heading:first-child {
+  margin-top: 4px;
+}
+
 .skin-picker {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 10px;
-  margin: 20px 0 4px;
+  margin: 8px 0 4px;
 }
 
 .skin-card {

@@ -74,7 +74,27 @@ export const SKIN_UNLOCK_LEVELS = {
   golden: 7,
   shadow: 9,
   jungle: 12,
+
+  // Progression skins (js/skins.js): exactly 5 unlocked per level, Level 1 through Level 10. Level 11+
+  // unlocks gameplay upgrades instead (see UPGRADE_CATEGORIES / js/profile/upgrades.js below) - no more
+  // skins are gated behind level from here on.
+  neon_lime: 1, ocean_blue: 1, ruby_red: 1, purple_pulse: 1, arctic_white: 1,
+  lava_core: 2, electric_blue: 2, emerald_venom: 2, pink_plasma: 2, solar_orange: 2,
+  cyber_snake: 3, digital_glitch: 3, holographic: 3, chrome: 3, carbon_fiber: 3,
+  deep_ocean: 4, volcanic_rock: 4, toxic_reactor: 4, plasma_storm: 4, frozen_crystal: 4,
+  galaxy: 5, nebula: 5, starfire: 5, black_hole: 5, astral: 5,
+  samurai: 6, ninja: 6, dragon: 6, phoenix: 6, oni: 6,
+  golden_dragon: 7, royal_emerald: 7, royal_sapphire: 7, royal_ruby: 7, royal_amethyst: 7,
+  shadow_flame: 8, void: 8, blood_moon: 8, eclipse: 8, dark_matter: 8,
+  lightning_god: 9, ice_god: 9, fire_god: 9, storm_god: 9, cosmic_god: 9,
+  ancient_king: 10, immortal: 10, celestial: 10, infinity: 10, ultimate_venom: 10,
 };
+
+// --- post-Level-10 progression (placeholder) ---------------------------------------------------------
+// From Level 11 on, levelling up grants a gameplay UPGRADE instead of a new skin. This is only the data
+// shape + UI hook for that - see js/profile/upgrades.js. No category has a real effect yet: they are
+// listed so a later task can wire one in without inventing new profile/save-file plumbing first.
+export const UPGRADE_START_LEVEL = 11;
 
 // Before profiles existed EVERY skin was available. A player who already had the game (recognised by
 // the old skin / nickname keys in localStorage) keeps all of them: their selected skin stays selected

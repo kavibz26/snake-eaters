@@ -1,5 +1,8 @@
 // The skin grid, shared by the main menu and the profile screen (one implementation, two mounts).
-// Locked skins stay visible with their requirement; tapping one explains how to unlock it.
+// Locked skins stay visible with their requirement; tapping one explains how to unlock it. Skins are
+// grouped by unlock level (ascending) so a 58-skin catalog still reads as a clear progression instead
+// of one undifferentiated wall - each group is its own small grid, so the existing responsive
+// `.skin-picker` layout (and its no-overflow guarantee) is reused unchanged per group.
 import { SKINS } from '../skins.js';
 import { renderSkinPreview } from '../snakeRender.js';
 import { getUnlockLevel } from './profile.js';
@@ -7,32 +10,54 @@ import { getUnlockLevel } from './profile.js';
 export function createSkinPicker(container, { profile, onSelect, onLocked }) {
   const cards = new Map();
   container.textContent = '';
+
+  // Group by unlock level, ascending; skins without an explicit entry default to level 1 (see
+  // getUnlockLevel), landing them in the earliest group alongside the other starter skins.
+  const groups = new Map();
   for (const skin of SKINS) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'skin-card';
-    btn.dataset.skinId = skin.id;
+    const level = getUnlockLevel(skin.id);
+    if (!groups.has(level)) groups.set(level, []);
+    groups.get(level).push(skin);
+  }
+  const levels = [...groups.keys()].sort((a, b) => a - b);
 
-    const preview = document.createElement('canvas');
-    preview.className = 'skin-preview';
-    preview.width = 140;
-    preview.height = 100;
-    renderSkinPreview(preview, skin);
+  for (const level of levels) {
+    const heading = document.createElement('h3');
+    heading.className = 'section-label skin-group-heading';
+    heading.textContent = `Level ${level}`;
+    container.appendChild(heading);
 
-    const label = document.createElement('span');
-    label.className = 'skin-card-name';
-    label.textContent = `${skin.emoji} ${skin.name}`;
+    const grid = document.createElement('div');
+    grid.className = 'skin-picker';
+    container.appendChild(grid);
 
-    const lock = document.createElement('span');
-    lock.className = 'skin-lock';
+    for (const skin of groups.get(level)) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'skin-card';
+      btn.dataset.skinId = skin.id;
 
-    btn.append(preview, label, lock);
-    btn.addEventListener('click', () => {
-      if (profile.isSkinUnlocked(skin.id)) onSelect(skin);
-      else if (onLocked) onLocked(skin, getUnlockLevel(skin.id));
-    });
-    container.appendChild(btn);
-    cards.set(skin.id, { btn, lock });
+      const preview = document.createElement('canvas');
+      preview.className = 'skin-preview';
+      preview.width = 140;
+      preview.height = 100;
+      renderSkinPreview(preview, skin);
+
+      const label = document.createElement('span');
+      label.className = 'skin-card-name';
+      label.textContent = `${skin.emoji} ${skin.name}`;
+
+      const lock = document.createElement('span');
+      lock.className = 'skin-lock';
+
+      btn.append(preview, label, lock);
+      btn.addEventListener('click', () => {
+        if (profile.isSkinUnlocked(skin.id)) onSelect(skin);
+        else if (onLocked) onLocked(skin, getUnlockLevel(skin.id));
+      });
+      grid.appendChild(btn);
+      cards.set(skin.id, { btn, lock });
+    }
   }
 
   function refresh() {

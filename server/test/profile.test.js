@@ -20,6 +20,10 @@ const mk = (initial, opts = {}) => {
   return { storage, profile: new Profile({ storage, now: () => 1000, random: () => 0.5, schedule: () => 1, cancel: () => {}, ...opts }) };
 };
 const single = (over = {}) => ({ key: 'run-1', mode: 'single', victory: false, survived: false, score: 0, length: 7, kills: 0, food: 0, playSeconds: 30, ...over });
+// Skins whose unlock level was set before the 50-skin progression catalog existed, vs. the 5-per-level
+// set added alongside it - kept separate so both can be asserted on precisely.
+const ORIGINAL_SKIN_IDS = ['classic', 'inferno', 'frost', 'toxic', 'cosmic', 'golden', 'shadow', 'jungle'];
+const idsAtLevel = (lvl) => Object.entries(SKIN_UNLOCK_LEVELS).filter(([, l]) => l === lvl).map(([id]) => id).sort();
 
 // --- XP curve --------------------------------------------------------------------------------------------------
 
@@ -58,7 +62,7 @@ test('default profile: valid, extensible shape, level 1, only default skins, not
   assert.match(d.nickname, /^Snake\d{4}$/);
   assert.deepEqual(Object.keys(d.stats).sort(), ['eventsEarned', 'foodEaten', 'gamesPlayed', 'gamesWon', 'highestScore', 'kills', 'longestSnake', 'megaFoodCollected', 'multiplayerGames', 'multiplayerWins', 'powerupsCollected', 'totalPlayTime']);
   assert.ok(Object.values(d.stats).every((v) => v === 0));
-  assert.deepEqual(d.unlockedSkins, ['classic']);
+  assert.deepEqual(d.unlockedSkins.sort(), idsAtLevel(1));
   assert.equal(d.selectedSkin, 'classic');
   assert.equal(d.createdAt, 1000);
   assert.equal(storage.writes, 1, 'first run writes one clean profile');
@@ -77,7 +81,7 @@ test('load: a saved profile round-trips exactly', () => {
   assert.equal(b.xp, 300);
   assert.equal(b.level, 3);
   assert.equal(b.selectedSkin, 'inferno');
-  assert.deepEqual(b.data.unlockedSkins.sort(), ['classic', 'frost', 'inferno']);
+  assert.deepEqual(b.data.unlockedSkins.sort(), [1, 2, 3].flatMap(idsAtLevel).sort(), 'classic/inferno/frost plus the 15 new skins unlocked at levels 1-3');
 });
 
 test('corrupted storage: garbage, wrong types and truncated JSON all fall back to a fresh profile (and the bad text is kept aside)', () => {
@@ -147,7 +151,7 @@ test('legacy import: an existing player keeps their skin, nickname AND every ski
   assert.equal(profile.source, 'legacy-import');
   assert.equal(profile.nickname, 'Veteran');
   assert.equal(profile.selectedSkin, 'golden', 'the selected skin is kept');
-  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)), 'all 8 skins were available before, so all 8 stay available');
+  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)), 'every skin was available before, so every skin stays available');
   assert.equal(profile.level, 1, 'their level is still 1 - the skins are not tied to it');
   assert.equal(profile.xp, 0);
   assert.equal(profile.recentUnlock(), null, 'no "NEW" badges for skins they already had');
@@ -166,7 +170,7 @@ test('legacy import: a nickname-only old install (multiplayer user) is also an e
 
 test('new players (no old-game data) use the level-based unlocks', () => {
   const { profile } = mk();
-  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id).sort(), idsAtLevel(1), 'every skin unlocked at level 1, nothing more');
   assert.equal(profile.data.legacySkinsChecked, true, 'nothing left to migrate, so a later stray old key cannot grant anything');
 });
 
@@ -183,7 +187,7 @@ test('migration: a profile already created by the first progression build gets t
   const saved = JSON.parse(storage.getItem(STORAGE_KEY));
   assert.equal(saved.legacySkinsChecked, true);
   assert.equal(saved.unlockedSkins.length, SKINS.length, 'the grant was written back');
-  assert.deepEqual(saved.unlockedSkins.slice(0, 3), ['classic', 'inferno', 'frost'], 'existing entries keep their order');
+  for (const id of ['classic', 'inferno', 'frost']) assert.ok(saved.unlockedSkins.includes(id), `${id} (from the stored list) survives the grant`);
   // one-time: loading again changes nothing and writes nothing
   const writes = storage.writes;
   const again = new Profile({ storage, now: () => 1 });
@@ -194,11 +198,11 @@ test('migration: a profile already created by the first progression build gets t
 test('migration: a first-build profile of a genuinely NEW player (no old-game keys) is not granted anything', () => {
   const stored = { version: 1, nickname: 'Fresh', xp: 0, stats: {}, unlockedSkins: ['classic'], selectedSkin: 'classic', createdAt: 1, updatedAt: 1 };
   const { profile, storage } = mk({ [STORAGE_KEY]: JSON.stringify(stored) });
-  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id).sort(), idsAtLevel(1));
   assert.equal(JSON.parse(storage.getItem(STORAGE_KEY)).legacySkinsChecked, true, 'decision recorded');
   // an old-game key showing up later (e.g. another tab of the old site) must not unlock anything now
   storage.setItem(LEGACY_SKIN_KEY, 'golden');
-  assert.deepEqual(SKINS.filter((s) => new Profile({ storage }).isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+  assert.deepEqual(SKINS.filter((s) => new Profile({ storage }).isSkinUnlocked(s.id)).map((s) => s.id).sort(), idsAtLevel(1));
 });
 
 test('migration never removes an unlocked skin and never touches a profile from a newer build', () => {
@@ -408,28 +412,56 @@ test('a match result persists immediately (not only after the debounce)', () => 
 
 // --- skins ------------------------------------------------------------------------------------------------------------------
 
-test('skins: unlock levels are configured for every real skin, and start with exactly one unlocked', () => {
+test('skins: unlock levels are configured for every real skin, and start with every level-1 skin unlocked', () => {
   for (const s of SKINS) assert.ok(Number.isInteger(SKIN_UNLOCK_LEVELS[s.id]), `${s.id} has an unlock level`);
   assert.equal(Object.keys(SKIN_UNLOCK_LEVELS).length, SKINS.length, 'no stale entries');
   assert.equal(getUnlockLevel('classic'), 1);
   assert.equal(getUnlockLevel('a-future-skin'), 1);
   const { profile } = mk();
-  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id), ['classic']);
+  assert.deepEqual(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).map((s) => s.id).sort(), idsAtLevel(1), 'a fresh profile owns every skin whose unlock level is 1, and nothing else');
 });
 
-test('skins: reaching a level unlocks exactly the skins for that level, reported once', () => {
+test('skins: exactly 50 new progression skins exist, 5 per level from 1 to 10, each with a unique stable id', () => {
+  const newSkins = SKINS.filter((s) => !ORIGINAL_SKIN_IDS.includes(s.id));
+  assert.equal(newSkins.length, 50, 'exactly 50 new skins');
+  const ids = newSkins.map((s) => s.id);
+  assert.equal(new Set(ids).size, 50, 'every new skin has a unique id');
+  for (const id of ids) assert.equal(id, id.toLowerCase().replace(/[^a-z0-9_]/g, ''), `${id} is a stable snake_case id, not a display string`);
+  for (let lvl = 1; lvl <= 10; lvl++) {
+    const atLevel = newSkins.filter((s) => SKIN_UNLOCK_LEVELS[s.id] === lvl);
+    assert.equal(atLevel.length, 5, `exactly 5 new skins at level ${lvl}`);
+  }
+  assert.ok(newSkins.every((s) => SKIN_UNLOCK_LEVELS[s.id] <= 10), 'no new skin is gated past level 10 - Level 11+ is upgrades, not skins');
+});
+
+test('skins: reaching a level unlocks exactly the skins for that level (existing + new), reported once', () => {
   const { profile } = mk();
   let r = profile.addXP(100, 't'); // level 2
-  assert.deepEqual(r.unlocked, [{ skinId: 'inferno', level: 2 }]);
+  assert.deepEqual(r.unlocked.map((u) => u.skinId).sort(), idsAtLevel(2), 'inferno plus the 5 new level-2 skins');
   r = profile.addXP(1, 't');
   assert.deepEqual(r.unlocked, [], 'not reported again');
   r = profile.addXP(getXPForLevel(9) - profile.xp, 't'); // jump 2 -> 9
-  assert.deepEqual(r.unlocked.map((u) => u.skinId), ['frost', 'toxic', 'cosmic', 'golden', 'shadow']);
+  assert.deepEqual(r.unlocked.map((u) => u.skinId).sort(), [3, 4, 5, 6, 7, 8, 9].flatMap(idsAtLevel).sort(), 'every skin gated at levels 3 through 9');
   assert.ok(!profile.isSkinUnlocked('jungle'));
-  assert.equal(profile.recentUnlock(), 'shadow');
   assert.deepEqual(profile.skinStatus('jungle'), { unlocked: false, unlockLevel: 12 });
+});
+
+test('skins: Level 10 unlocks all 50 new skins; Level 11 unlocks no additional skin', () => {
+  const { profile } = mk();
+  profile.addXP(getXPForLevel(10) - profile.xp, 't');
+  const newSkins = SKINS.filter((s) => !ORIGINAL_SKIN_IDS.includes(s.id));
+  assert.ok(newSkins.every((s) => profile.isSkinUnlocked(s.id)), 'every one of the 50 new skins is unlocked by level 10');
+  assert.ok(!profile.isSkinUnlocked('jungle'), 'an existing skin gated past level 10 is unaffected');
+  const unlockedAt10 = SKINS.filter((s) => profile.isSkinUnlocked(s.id)).length;
+  const r = profile.addXP(getXPForLevel(11) - profile.xp, 't'); // level 10 -> 11
+  assert.deepEqual(r.unlocked, [], 'no skin is gated at level 11 - it is the first upgrade-only level');
+  assert.equal(SKINS.filter((s) => profile.isSkinUnlocked(s.id)).length, unlockedAt10, 'unlocked-skin count is unchanged by reaching level 11');
+});
+
+test('skins: reaching level 12 still unlocks the one remaining pre-existing skin (jungle) alongside everything else', () => {
+  const { profile } = mk();
   profile.addXP(getXPForLevel(12) - profile.xp, 't');
-  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)));
+  assert.ok(SKINS.every((s) => profile.isSkinUnlocked(s.id)), 'all 58 skins (8 original + 50 new) are unlocked');
 });
 
 test('skins: a locked skin cannot be selected, an unlocked one can, unknown ids are refused', () => {

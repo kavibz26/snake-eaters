@@ -7,6 +7,7 @@ import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import { SKIN_UNLOCK_LEVELS } from '../../js/profile/config.js';
 
 // Real-browser checks of the profile UI (headless Chrome over the DevTools protocol). If no
 // Chrome / Chromium / Edge is installed the whole file is skipped, so `npm test` still runs anywhere.
@@ -133,10 +134,12 @@ test('profile UI: menu card, open/close, stats, skins, name editing (real browse
     await sleep(700); // saves are debounced (never per change)
     assert.equal(await page.eval(`JSON.parse(localStorage.getItem('snakeEaters.profile.v1')).nickname`), shown.text, 'persisted');
 
-    // skins: level 7 -> golden is open, shadow (9) and jungle (12) are locked and say why
+    // skins: level 7 -> golden (and every progression skin through Level 7) is open; everything gated
+    // past level 7 (existing shadow/jungle, and the Level 8-10 progression skins) is locked and says why.
     await page.eval(`document.getElementById('profileSkinsBtn').click()`);
     const cards = await page.eval(`[...document.querySelectorAll('#profileSkinGrid .skin-card')].map((c) => ({ id: c.dataset.skinId, locked: c.classList.contains('locked'), sel: c.classList.contains('selected'), lock: c.querySelector('.skin-lock').textContent }))`);
-    assert.deepEqual(cards.filter((c) => c.locked).map((c) => `${c.id}:${c.lock}`), ['shadow:🔒 Level 9', 'jungle:🔒 Level 12']);
+    const expectedLocked = Object.entries(SKIN_UNLOCK_LEVELS).filter(([, lvl]) => lvl > 7).map(([id, lvl]) => `${id}:🔒 Level ${lvl}`);
+    assert.deepEqual(cards.filter((c) => c.locked).map((c) => `${c.id}:${c.lock}`).sort(), expectedLocked.sort());
     assert.equal(cards.find((c) => c.sel).id, 'inferno');
     await page.eval(`document.querySelector('#profileSkinGrid .skin-card[data-skin-id="shadow"]').click()`);
     assert.equal(await page.eval(`document.querySelector('#profileSkinGrid .skin-card.selected').dataset.skinId`), 'inferno', 'a locked skin cannot be selected');

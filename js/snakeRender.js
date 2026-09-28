@@ -142,7 +142,10 @@ function markCamo(ctx, x, y, size, skin) {
   ctx.fill();
 }
 
-const PATTERN_MARKS = {
+// Exported so a skin catalog (js/skins.js) can be validated against the real set of drawable
+// patterns - an unknown `pattern` value silently draws nothing rather than throwing, so tests need
+// this list to catch a typo instead of a skin quietly rendering without its signature marking.
+export const PATTERN_MARKS = {
   diamond: markDiamond,
   crack: markCrack,
   crystal: markCrystal,

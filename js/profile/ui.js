@@ -5,6 +5,7 @@ import { renderSkinPreview } from '../snakeRender.js';
 import { NICKNAME } from './config.js';
 import { validateNickname } from './store.js';
 import { createSkinPicker } from './skinPicker.js';
+import { isUpgradeLevel } from './upgrades.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -47,7 +48,7 @@ export function initProfileUI({ profile, showScreen, applySkin }) {
     main: $('profileMain'), skinsView: $('profileSkins'), skinGrid: $('profileSkinGrid'),
     actions: $('profileActions'), editBtn: $('profileEditBtn'), skinsBtn: $('profileSkinsBtn'), backBtn: $('profileBackBtn'),
     form: $('profileNameForm'), input: $('profileNameInput'), error: $('profileNameError'), cancel: $('profileNameCancel'),
-    skinsBack: $('profileSkinsBack'), toast: $('profileToast'),
+    skinsBack: $('profileSkinsBack'), toast: $('profileToast'), skinsNote: $('profileSkinsNote'),
   };
 
   // --- stat cells are built once and only their text changes afterwards -------------------------------------------
@@ -112,6 +113,11 @@ export function initProfileUI({ profile, showScreen, applySkin }) {
     renderCard();
     menuPicker.refresh();
     profilePicker.refresh();
+    // Level 10 owns every skin there is; from Level 11 the same screen's note points at what's next
+    // (see js/profile/upgrades.js - a placeholder for now, nothing is actually granted yet).
+    el.skinsNote.textContent = isUpgradeLevel(profile.level)
+      ? 'All snakes unlocked! Level 11+ unlocks new upgrades (coming soon).'
+      : 'Level up to unlock more snakes.';
     if (!$('profileScreen').classList.contains('hidden')) renderProfile();
   }
   profile.on('change', refresh);
