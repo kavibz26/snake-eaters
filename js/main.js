@@ -6,6 +6,7 @@ import { NetGame } from './net/netgame.js';
 import { initMultiplayer } from './net/mpui.js';
 import { getProfile } from './profile/profile.js';
 import { initProfileUI } from './profile/ui.js';
+import { initGameProfile } from './profile/gameProfile.js';
 import { createXpFeed, renderRewards, createLevelUpModal } from './profile/feedback.js';
 import { fromSinglePlayer, fromMultiplayer } from './profile/results.js';
 import { createEventToaster, renderEventSummary } from './events/ui.js';
@@ -20,6 +21,7 @@ const screens = {
   lobby: document.getElementById('lobbyScreen'),
   mpResults: document.getElementById('mpResultsScreen'),
   profile: document.getElementById('profileScreen'),
+  gameProfile: document.getElementById('gameProfileScreen'),
 };
 
 function showScreen(name) {
@@ -86,7 +88,8 @@ function applySkin(skin) {
   setYouBadge(skin);
 }
 
-initProfileUI({ profile, showScreen, applySkin });
+const profileUI = initProfileUI({ profile, showScreen, applySkin });
+initGameProfile({ profile, showScreen, applySkin, onPlay: beginRun, toast: profileUI.toast });
 game.setPlayerSkin(selectedSkin);
 setYouBadge(selectedSkin);
 

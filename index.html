@@ -44,6 +44,8 @@
         <span class="profile-card-chev" aria-hidden="true">&rsaquo;</span>
       </button>
 
+      <button id="gameProfileBtn" class="btn btn-link" type="button">🐍 Game Profile</button>
+
       <button id="playBtn" class="btn btn-primary btn-play">Play Now</button>
       <button id="multiplayerBtn" class="btn btn-secondary btn-mp"><span aria-hidden="true">🌐</span> Multiplayer</button>
 
@@ -257,6 +259,34 @@
         <div id="profileSkinGrid" class="skin-groups"></div>
         <button id="profileSkinsBack" class="btn btn-link" type="button">&larr; Back to profile</button>
       </div>
+    </div>
+  </section>
+
+  <!-- Game Profile: Snake Eaters' own identity/branding, overall level progression, and skin collection -->
+  <section id="gameProfileScreen" class="screen hidden">
+    <div class="panel profile-panel">
+      <div class="profile-head">
+        <img class="profile-avatar" src="assets/profile.webp" alt="Snake Eaters">
+        <div class="profile-id">
+          <h2 class="profile-name">Snake Eaters</h2>
+          <p class="subtitle">Eat, grow, survive. Only the strongest snake remains.</p>
+        </div>
+      </div>
+
+      <div class="start-section">
+        <h2 class="section-label">Level Progression</h2>
+        <div class="profile-level">Level <b id="gameProfileLevel">1</b></div>
+        <div class="xp-bar" role="progressbar" aria-label="Level progress"><i id="gameProfileXpFill"></i></div>
+        <div class="xp-caption"><span id="gameProfileXpText"></span><span id="gameProfileXpNext"></span></div>
+      </div>
+
+      <div class="start-section">
+        <h2 id="gameProfileSkinCount" class="section-label">Snakes Collected</h2>
+        <div id="gameProfileSkinGrid" class="skin-groups"></div>
+      </div>
+
+      <button id="gameProfilePlayBtn" class="btn btn-primary btn-play" type="button">Play</button>
+      <button id="gameProfileBackBtn" class="btn btn-link" type="button">&larr; Back</button>
     </div>
   </section>
 
